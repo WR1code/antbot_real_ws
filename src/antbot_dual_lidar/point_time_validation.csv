@@ -1,0 +1,7 @@
+status,lidar,profile,motion,hypothesis,offset_datatype,min_offset_ns,max_offset_ns,memory_regressions,plane_rmse_m,wall_p95_m,column_spread_m,overlap_rmse_m,notes
+OBSERVED,front_left,navigation,static,unresolved,uint32,0,99691170,0,,,,,17 frames; 343907 adjacent duplicate offsets
+OBSERVED,rear_right,navigation,static,unresolved,uint32,0,99691170,0,,,,,17 frames; 342016 adjacent duplicate offsets
+PENDING,both,navigation,motion,header_plus_offset,uint32,,,,,,,,
+PENDING,both,navigation,motion,header_minus_offset,uint32,,,,,,,,
+PENDING,both,navigation,motion,header_plus_offset_minus_scan_period,uint32,,,,,,,,
+PENDING,both,navigation,motion,header_midpoint,uint32,,,,,,,,

@@ -1,0 +1,108 @@
+contract_version: 3
+status: phase_2a_native_semantics_runtime_validation
+front_lidar:
+  topic: /antbot/lidar/front_left/points
+  native_topic: /antbot/lidar/front_left/points_raw_native
+  enhanced_topic: /antbot/lidar/front_left/points_lio
+  truth_deskew_topic: /antbot/lidar/front_left/points_deskew_truth
+  world_reference_topic: /antbot/lidar/front_left/points_world_reference
+  frame: lidar_2d_front_scan
+rear_lidar:
+  topic: /antbot/lidar/rear_right/points
+  native_topic: /antbot/lidar/rear_right/points_raw_native
+  enhanced_topic: /antbot/lidar/rear_right/points_lio
+  truth_deskew_topic: /antbot/lidar/rear_right/points_deskew_truth
+  world_reference_topic: /antbot/lidar/rear_right/points_world_reference
+  frame: lidar_2d_back_scan
+point_fields:
+  standard: [x, y, z, intensity]
+  enhanced: [x, y, z, intensity, time_offset_ns]
+  unavailable: [ring, channel, emitter_id]
+  per_point_time: sensor_native_always_available_in_3d_mode
+  ring_synthesis_permitted: false
+imu:
+  raw_topic: /antbot/imu/data_raw
+  topic: /antbot/imu/data
+  frame: imu_link
+  prim: /antbot/Geometry/base_link/imu_link/imu_sensor
+  available: true
+  primary_for_phase_2b: true
+  target_frequency_hz: 120
+  time_source: simulation_clock
+  qos: sensor_data_best_effort_depth_5
+  orientation_for_lio: false
+  reset_behavior: reset_timestamp_and_noise_rng
+auxiliary_imu:
+  enabled_by_default: false
+  fused_with_primary: false
+  front:
+    topic: /antbot/lidar/front_left/imu
+    frame: front_lidar_imu
+  rear:
+    topic: /antbot/lidar/rear_right/imu
+    frame: rear_lidar_imu
+point_time:
+  field: time_offset_ns
+  datatype: int32
+  ros_point_field_datatype: 5
+  unit: nanoseconds
+  scan_period_sec: 0.1
+  convention: DEFERRED_TO_REAL_HARDWARE_OR_LIO_RESEARCH
+  candidate_runtime_default: header_plus_offset
+  absolute_time_formula: DEFERRED_TO_REAL_HARDWARE_OR_LIO_RESEARCH
+  header_semantics: GMO_timestampNs_scan_anchor
+  measured_header_period_ns: 100000000
+  memory_order_monotonicity: nondecreasing_not_strict
+  adjacent_duplicate_offsets_expected: true
+ground_truth:
+  topic: /antbot/ground_truth/odom
+  frame: odom
+  child_frame: base_link
+  validation_only: true
+deskew_validation:
+  reference_time: header_stamp
+  selection_status: DEFERRED_TO_REAL_HARDWARE_OR_LIO_RESEARCH
+  input_semantics: SENSOR_NONCOMPENSATED_native_per_ray
+  forbidden_as_lio_input: true
+odom:
+  topic: /odom
+  frame: odom
+  child_frame: base_link
+  available: true
+time:
+  source: /clock
+  use_sim_time: true
+synchronization:
+  default_strategy: approximate
+  maximum_pair_delta_sec: 0.02
+  preserve_input_timestamps: true
+qos:
+  lidar: sensor_data_best_effort_depth_5
+  imu: sensor_data_best_effort_depth_5
+failure_policy:
+  lidar_timeout_sec: 0.5
+  reset_on_time_regression: true
+  reuse_stale_cloud: false
+extrinsics:
+  authority: robot_state_publisher
+  base_to_imu:
+    xyz: [0.0, 0.0, 0.25]
+    rpy: [0.0, 0.0, 0.0]
+  base_to_front:
+    xyz: [0.322, 0.222, 0.414]
+    rpy: [0.0, 0.0, 0.0]
+  base_to_rear:
+    xyz: [-0.322, -0.222, 0.414]
+    rpy: [0.0, 0.0, 3.141592653589793]
+  imu_to_front:
+    xyz: [0.322, 0.222, 0.164]
+    rpy: [0.0, 0.0, 0.0]
+  imu_to_rear:
+    xyz: [-0.322, -0.222, 0.164]
+    rpy: [0.0, 0.0, 3.141592653589793]
+algorithm_adapter:
+  phase_2b_primary_imu_topic: /antbot/imu/data
+  allow_no_ring_preprocessing: true
+  required_field_mapping:
+    time_offset_ns: convert_to_target_time_unit
+  two_lidar_interleaving_on_one_topic: false

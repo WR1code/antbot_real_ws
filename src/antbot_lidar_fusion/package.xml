@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>antbot_lidar_fusion</name>
+  <version>0.1.0</version>
+  <description>Fuse AntBot's two diagonal 2D lidars in base_link.</description>
+  <maintainer email="w@example.com">w</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>sensor_msgs_py</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>message_filters</exec_depend>
+  <exec_depend>tf2_ros_py</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>xacro</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>antbot_description</exec_depend>
+
+  <test_depend>ament_pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

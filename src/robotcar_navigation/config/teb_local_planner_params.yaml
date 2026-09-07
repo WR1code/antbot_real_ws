@@ -1,0 +1,14 @@
+# TEB is a ROS 1 move_base plugin. In ROS 2 Jazzy this package uses
+# Nav2 Regulated Pure Pursuit by default.
+controller_server:
+  ros__parameters:
+    controller_plugins: ["FollowPath"]
+    FollowPath:
+      plugin: nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController
+      desired_linear_vel: 0.35
+      lookahead_dist: 0.45
+      min_lookahead_dist: 0.2
+      max_lookahead_dist: 0.8
+      rotate_to_heading_angular_vel: 0.8
+      use_rotate_to_heading: true
+      allow_reversing: false

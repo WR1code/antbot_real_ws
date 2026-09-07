@@ -1,0 +1,458 @@
+# antbot_navigation
+
+ROS 2 Nav2 navigation package for AntBot. This package supports saved-map navigation, SLAM-based map creation, and localization-only launches. It keeps physical robot settings (`mode:=real`) and simulation settings (`mode:=sim`) separated inside the same package.
+
+## 可视化航点导航
+
+`waypoint_navigation.launch.py` 直接复用 `robotcar_navigation` 的 RViz2
+插件和航点管理节点，包括 Add Waypoint/Add Charger、Interactive Marker
+拖动和删除、XML 保存、按名称导航及到点状态显示。接口在 Isaac Sim 和实车之间
+保持一致。先启动对应的底盘、传感器和 `robot_state_publisher`，再运行：
+
+默认 RViz 配置使用 `Orbit` 三维视角，可旋转观察机器人模型、前后雷达、
+三维航点 mesh 和路径；二维地图与代价地图作为地面平面显示。
+
+```bash
+# Isaac Sim（depot 是 maps/worlds.yaml 中登记的地图名）
+ros2 launch antbot_navigation waypoint_navigation.launch.py \
+  mode:=sim world:=depot
+
+# 实车（也可以用 world:=... 选择已登记地图）
+ros2 launch antbot_navigation waypoint_navigation.launch.py \
+  mode:=real map:=/absolute/path/to/map.yaml
+
+# Nav2 已经由其他终端启动时，只启动 robotcar 航点工具链和 RViz
+ros2 launch antbot_navigation waypoint_navigation.launch.py \
+  mode:=real start_nav2:=false
+```
+
+在 RViz 工具栏选择 `Add Waypoint`，然后在地图上按下并拖动鼠标设置位置和
+朝向。选择 `Interact` 后可以拖动、旋转航点，右键选择 `Delete` 可删除。
+
+RViz 的 `航点与巡航组` 面板提供完整管理功能：从下拉框选择已有航点并
+重命名；把当前全部航点命名另存为 XML 航点组或打开任意 XML 航点组；通过文件
+对话框调用 map_server 切换二维地图；把航点添加到顺序列表后拖拽/上移/下移，
+命名保存为 `.route.json` 顺序组。Nav2 运行时可在面板直接执行或停止该顺序。
+面板内的巡航进度条实时显示当前航点、已完成/总数和百分比，并用绿/黄/红三色
+区分已完成、正在前往和失败的列表项。通过终端 `wr_navigate.py` 启动时也会经
+`/waterplus/route_progress` 同步到同一进度显示。
+切换另一地图工程的二维地图后，应以对应参数重启离线编辑器，才能同步切换该
+工程的三维点云和 RGB-D 预览。
+`wp_saver` 终端中按空格保存，按 `q`/`d` 添加/删除 detect 动作。
+
+也可以通过原 robotcar 接口操作：
+
+```bash
+# 导航到名为 01 的航点
+ros2 topic pub --once /waterplus/navi_waypoint std_msgs/msg/String "{data: '01'}"
+
+# 把 AMCL 初始位置设置为航点 01
+ros2 topic pub --once /waterplus/set_pose std_msgs/msg/String "{data: '01'}"
+
+# 重新读取 XML
+ros2 service call /waterplus/reload_waypoints std_srvs/srv/Empty "{}"
+
+# 按 XML 顺序依次导航
+ros2 run robotcar_navigation wr_navigate.py --ros-args \
+  -p use_sim_time:=true \
+  -p waypoints_file:=/absolute/path/to/waypoints.xml
+```
+
+默认航点文件为 robotcar 原来的 `config/waypoints.xml`，可用
+`waypoints_file:=/path/to/file.xml` 覆盖。`mode:=sim` 自动使用仿真时间，
+`mode:=real` 自动使用系统时间。
+
+AntBot uses a 4-wheel independent swerve-drive layout, but steering angle limits mean it does not behave like a fully holonomic robot in practice. The real robot prioritizes stability with RPP (Regulated Pure Pursuit), while simulation uses MPPI to test rollout-based path following.
+
+## Prerequisites
+
+The Nav2, SLAM Toolbox, robot localization, MPPI, and RPP controller dependencies are declared in `package.xml`, so they can be installed with rosdep from the workspace root.
+
+```bash
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+To install them manually, use:
+
+```bash
+sudo apt install ros-humble-navigation2 ros-humble-nav2-bringup \
+  ros-humble-slam-toolbox ros-humble-robot-localization \
+  ros-humble-nav2-mppi-controller \
+  ros-humble-nav2-regulated-pure-pursuit-controller
+```
+
+Then build the package:
+
+```bash
+colcon build --symlink-install --packages-select antbot_navigation
+source install/setup.bash
+```
+
+All launch files use the `mode` argument to select the configuration directory and time source.
+
+```bash
+ros2 launch antbot_navigation navigation.launch.py mode:=real map:=/path/to/map.yaml
+ros2 launch antbot_navigation navigation.launch.py mode:=sim map:=/path/to/map.yaml
+```
+
+## Real Mode
+
+This is the default mode for operating the physical robot. It favors simplicity and stability over sensor fusion, and directly uses the front LiDAR and swerve controller odometry.
+
+### Real Launches
+
+Saved-map navigation:
+
+```bash
+ros2 launch antbot_navigation navigation.launch.py mode:=real map:=/path/to/map.yaml
+```
+
+Create a map with SLAM:
+
+```bash
+ros2 launch antbot_navigation slam.launch.py mode:=real
+```
+
+`slam.launch.py` does not include `localization.launch.py`. Instead of running `map_server` and AMCL against a saved map, `slam_toolbox` builds the map from LiDAR and `/odom` while publishing the `map -> odom` TF.
+
+Localization only:
+
+```bash
+ros2 launch antbot_navigation localization.launch.py mode:=real map:=/path/to/map.yaml
+```
+
+Save a map created by SLAM:
+
+```bash
+ros2 run nav2_map_server map_saver_cli -f ~/maps/my_map
+```
+
+### Real Architecture
+
+- **Controller**: RPP. If the heading error is large, the robot stops and rotates in place; otherwise, it follows the lookahead point.
+- **Command DOF**: Real driving mostly avoids `vy` and uses `vx` and `wz`.
+- **Odometry**: The swerve controller directly publishes `/odom` and the `odom -> base_link` TF.
+- **EKF**: Not used by the current real launch.
+- **LiDAR**: Uses only the front LiDAR (`/scan_0`).
+- **Scan fix relay**: Normalizes the COIN D4 driver's variable-length LaserScan output to `/scan_0_fixed`.
+
+The TF chain is:
+
+```text
+map -> odom -> base_link -> sensor_frames
+```
+
+| Transform | Publisher | Description |
+|-----------|-----------|-------------|
+| `map -> odom` | AMCL or SLAM Toolbox | Corrects the global pose by matching the map and LiDAR scan |
+| `odom -> base_link` | Swerve controller | Robot motion estimated from wheel odometry |
+| `base_link -> *` | `robot_state_publisher` | URDF-based sensor and wheel frames |
+
+### Real Key Settings
+
+The main configuration file is `config/real/nav2_params.yaml`.
+
+| Item | Value |
+|------|-------|
+| Config directory | `config/real/` |
+| `use_sim_time` | `false` |
+| Controller plugin | `nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController` |
+| AMCL motion model | `nav2_amcl::OmniMotionModel` |
+| Odometry topic | `/odom` |
+| LiDAR topic | `/scan_0_fixed` |
+| Velocity smoother | `[0.30, 0.02, 0.3]` |
+| Costmap inflation | `0.5m` |
+
+Key RPP parameters:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `desired_linear_vel` | `0.30` | Target linear velocity |
+| `lookahead_dist` | `0.6` | Default lookahead distance |
+| `min_lookahead_dist` | `0.4` | Minimum lookahead distance kept at low speed |
+| `max_lookahead_dist` | `1.0` | Maximum lookahead distance |
+| `rotate_to_heading_angular_vel` | `0.5` | In-place rotation speed |
+| `rotate_to_heading_min_angle` | `0.785` | Rotate in place when heading error is about 45 degrees or greater |
+| `regulated_linear_scaling_min_speed` | `0.10` | Minimum speed during curvature-based slowdown |
+| `max_angular_accel` | `0.5` | Maximum angular acceleration |
+
+If `rotate_to_heading_min_angle` is too low, the robot may stop and rotate even on gentle curves. The current value is about 45 degrees, so small curves are followed while driving and only larger heading changes trigger in-place rotation.
+
+### Real Sensor Topics
+
+| Topic | Source | Usage |
+|-------|--------|-------|
+| `/scan_0` | Raw front COIN D4 LiDAR | Corrected by `scan_fix_relay` because the number of ranges can vary per frame |
+| `/scan_0_fixed` | Corrected fixed 400-point scan | Real AMCL, SLAM, and costmap input |
+| `/odom` | Swerve controller | Nav2 odometry and TF reference |
+| `/imu/accel_gyro` | Physical IMU | Not used by the current real launch |
+
+`scan_fix_relay.py` republishes the variable-length range array from `/scan_0` as `/scan_0_fixed`, a fixed 400-point LaserScan. The raw scan can vary in point count from frame to frame, and its angle metadata may not match the actual range count, so real-mode AMCL, SLAM, and costmaps use the corrected topic.
+
+### Real Costmap
+
+| Item | Local Costmap | Global Costmap |
+|------|---------------|----------------|
+| Frame | `odom` | `map` |
+| Size | `5m x 5m`, rolling window | Full map |
+| Update frequency | `5Hz` | `1Hz` |
+| Layers | front obstacle + inflation | static + front obstacle + inflation |
+| Footprint | `0.70m x 0.60m` | `0.70m x 0.60m` |
+
+## Sim Mode
+
+This is the Gazebo-based test mode. It uses more aggressive speeds than the real robot, a dual-LiDAR costmap, and MPPI as the controller.
+
+### Sim Launches
+
+Run the Gazebo simulation in terminal 1.
+
+```bash
+ros2 launch antbot_gazebo gazebo.launch.py world:=depot
+```
+
+Run the saved-map Nav2 stack in terminal 2.
+
+```bash
+ros2 launch antbot_navigation navigation.launch.py mode:=sim map:=/path/to/depot_sim.yaml
+```
+
+Run RViz in terminal 3.
+
+```bash
+rviz2 -d $(ros2 pkg prefix antbot_navigation --share)/rviz/navigation.rviz \
+  --ros-args -p use_sim_time:=true
+```
+
+Create a map with SLAM:
+
+```bash
+ros2 launch antbot_navigation slam.launch.py mode:=sim
+```
+
+`slam.launch.py` does not include `localization.launch.py`. Instead of AMCL localization against a saved map, `slam_toolbox` creates the map in real time while publishing the `map -> odom` TF.
+
+Localization only:
+
+```bash
+ros2 launch antbot_navigation localization.launch.py mode:=sim map:=/path/to/map.yaml
+```
+
+Gazebo usually takes about 8-15 seconds to open and load the ros2_control controllers. In RViz, set the initial pose with `2D Pose Estimate`, then choose a target with `Nav2 Goal`.
+
+### Sim Architecture
+
+- **Controller**: MPPI. It samples multiple candidate trajectories and selects the best command using critics.
+- **Command DOF**: It can generate `vx`, `vy`, and `wz`, but `vy_max` is kept low to encourage forward driving and turning instead of crab-walking.
+- **LiDAR**: Uses `/scan_0` and `/scan_1` in the costmap obstacle layers.
+- **Costmap**: Uses larger inflation than real mode to account for steering overshoot and a wider turning radius.
+
+Based on the current launch files, `config/sim/ekf.yaml` exists but `localization.launch.py` does not start an EKF node. To re-enable EKF, also revisit the `robot_localization/ekf_node` launch and which node publishes the `odom -> base_link` TF.
+
+### Sim Key Settings
+
+The main configuration file is `config/sim/nav2_params.yaml`.
+
+| Item | Value |
+|------|-------|
+| Config directory | `config/sim/` |
+| `use_sim_time` | `true` |
+| Controller plugin | `nav2_mppi_controller::MPPIController` |
+| MPPI motion model | `Omni` |
+| AMCL motion model | `nav2_amcl::OmniMotionModel` |
+| Velocity smoother | `[1.5, 0.15, 1.5]` |
+| Costmap inflation | `0.75m` |
+
+Key MPPI parameters:
+
+| Parameter | Value | Description |
+|-----------|-------|-------------|
+| `vx_max` | `1.0` | Maximum forward velocity |
+| `vy_max` | `0.1` | Lateral velocity limit. This mostly prevents crab-walking and encourages forward driving and turning |
+| `wz_max` | `1.5` | Maximum angular velocity |
+| `batch_size` | `2000` | Number of candidate trajectories evaluated at once |
+| `time_steps` | `56` | Predicts 2.8 seconds ahead with `model_dt: 0.05` |
+| `motion_model` | `Omni` | Internal Nav2 controller motion model |
+
+Main critics:
+
+| Critic | Weight | Purpose |
+|--------|--------|---------|
+| `PreferForwardCritic` | `15.0` | Prefers forward driving over reverse or lateral motion |
+| `PathAngleCritic` | `15.0` | Aligns robot travel direction with the global path direction |
+| `TwirlingCritic` | `10.0` | Suppresses unnecessary in-place rotation |
+| `PathAlignCritic` | `10.0` | Scores alignment between candidate trajectories and the global path |
+| `PathFollowCritic` | `5.0` | Penalizes deviation from the global path |
+| `ObstaclesCritic` | `collision_cost: 10000.0` | Rejects collision trajectories |
+| `ConstraintCritic` | `4.0` | Penalizes velocity and acceleration limit violations |
+
+### Sim Sensor Topics
+
+| Topic | Source | Usage |
+|-------|--------|-------|
+| `/scan_0` | Front LiDAR | Sim AMCL, SLAM, and costmap |
+| `/scan_1` | Rear LiDAR | Sim costmap obstacle layer |
+| `/odom` | Swerve controller odometry | Velocity smoother feedback |
+| `/odometry/filtered` | Reserved topic for EKF output | Still present in the Sim BT navigator configuration |
+| `/imu/data` | Simulated IMU | EKF input if EKF is used |
+
+### Sim Costmap
+
+| Item | Local Costmap | Global Costmap |
+|------|---------------|----------------|
+| Frame | `odom` | `map` |
+| Size | `5m x 5m`, rolling window | Full map |
+| Update frequency | `5Hz` | `1Hz` |
+| Layers | front obstacle + back obstacle + inflation | static + front obstacle + back obstacle + inflation |
+| Footprint | `0.70m x 0.60m` | `0.70m x 0.60m` |
+
+## Common Usage
+
+### Navigation Goal
+
+For a single goal in RViz, set the initial pose with `2D Pose Estimate`, then click `Nav2 Goal`.
+
+You can also send a goal from the CLI.
+
+```bash
+ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
+  "{pose: {header: {frame_id: 'map'}, pose: {position: {x: 5.0, y: 3.0}}}}"
+```
+
+For multiple waypoints, add `Panels > Add New Panel > nav2_rviz_plugins/Navigation2`, enable Waypoint Mode, and select multiple goals.
+
+### World and Map
+
+`navigation.launch.py` can take a direct `map:=` argument. To auto-select a map from a world name such as `world:=depot`, register the world name and map file in `maps/worlds.yaml`.
+
+```yaml
+worlds:
+  depot:
+    sdf: depot.sdf
+    map: depot_sim.yaml
+```
+
+After registration, launch with:
+
+```bash
+ros2 launch antbot_navigation navigation.launch.py mode:=sim world:=depot
+```
+
+When adding a new world, place the `.sdf`, `.pgm`, and `.yaml` map files in `maps/`, then register them in `worlds.yaml`.
+
+## Real / Sim Comparison
+
+| Setting | `mode:=real` | `mode:=sim` |
+|---------|--------------|-------------|
+| Config directory | `config/real/` | `config/sim/` |
+| `use_sim_time` | `false` | `true` |
+| Controller | RPP | MPPI |
+| Controller plugin | `nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController` | `nav2_mppi_controller::MPPIController` |
+| Motion model | AMCL `OmniMotionModel` | MPPI `Omni`, AMCL `OmniMotionModel` |
+| Command DOF | mostly `vx`, `wz` | `vx`, `vy`, `wz` |
+| Max linear speed | RPP `desired_linear_vel: 0.30` | MPPI `vx_max: 1.0` |
+| Velocity smoother | `[0.30, 0.02, 0.3]` | `[1.5, 0.15, 1.5]` |
+| Odometry | swerve controller `/odom` | `/odom`, with some `/odometry/filtered` configuration still present |
+| LiDAR | `/scan_0` -> `/scan_0_fixed` | `/scan_0`, `/scan_1` |
+| Costmap inflation | `0.5m` | `0.75m` |
+
+AMCL uses `nav2_amcl::OmniMotionModel` in both modes. AntBot's structure needs to account for holonomic motion, so the diff-drive `DifferentialMotionModel` does not represent lateral motion components well enough.
+
+The DWB controller is not used in the current default configuration. AntBot is prone to `wz` oscillation and `vx` stalling with DWB, so real mode defaults to RPP and sim mode defaults to MPPI.
+
+## Package Structure
+
+```text
+antbot_navigation/
+├── config/
+│   ├── real/
+│   │   ├── nav2_params.yaml
+│   │   ├── ekf.yaml
+│   │   └── slam_toolbox_params.yaml
+│   └── sim/
+│       ├── nav2_params.yaml
+│       ├── ekf.yaml
+│       └── slam_toolbox_params.yaml
+├── launch/
+│   ├── slam.launch.py
+│   ├── navigation.launch.py
+│   └── localization.launch.py
+├── maps/
+│   ├── depot.sdf
+│   ├── depot_sim.pgm
+│   ├── depot_sim.yaml
+│   └── worlds.yaml
+├── scripts/
+│   └── scan_fix_relay.py
+└── rviz/
+    └── navigation.rviz
+```
+
+## Troubleshooting
+
+### `Failed to create plan`
+
+This can happen when the robot's initial pose is wrong or the robot footprint overlaps an obstacle in the costmap.
+
+- Reset the initial pose in RViz with `2D Pose Estimate`.
+- Clear the global costmap.
+
+```bash
+ros2 service call /global_costmap/clear_entirely_global_costmap nav2_msgs/srv/ClearEntireCostmap
+```
+
+### Wall Collisions or Obstacle Avoidance Failures
+
+This usually means the safety margin around obstacles is too small.
+
+- Increase `inflation_radius`: real `0.5 -> 0.75`, sim `0.75 -> 1.0`
+- Decrease `cost_scaling_factor`: for example, `1.5 -> 1.0`
+- When using MPPI, increase `ObstaclesCritic.collision_margin_distance`: for example, `0.1 -> 0.2`
+
+### Real: Robot Stops on Curves
+
+With `use_rotate_to_heading: true`, RPP switches to stop-and-rotate behavior when the heading error exceeds `rotate_to_heading_min_angle`.
+
+- Do not set `rotate_to_heading_min_angle` too low. The current recommended value is `0.785` rad.
+- If `min_lookahead_dist` is too small, the robot can repeatedly stop, shrink the lookahead, and interpret the curve as sharper.
+- Increase `rotate_to_heading_angular_vel` to finish in-place rotation faster.
+
+### Sim: Excessive In-Place Rotation
+
+- Increase the `TwirlingCritic` weight: `10.0 -> 15.0`
+- Decrease `wz_max`: `1.5 -> 1.0`
+- Tune the `PreferForwardCritic` weight
+
+### TF Timeout or Missing `map` Frame
+
+When Gazebo restarts, sim time resets to 0 and can invalidate the TF buffer. Restart Gazebo and Navigation together when this happens.
+
+### Diagnostic Commands
+
+```bash
+# Check LiDAR receive rate
+ros2 topic hz /scan_0
+
+# Check corrected scan in real mode
+ros2 topic hz /scan_0_fixed
+
+# Check map -> odom TF
+ros2 run tf2_ros tf2_echo map odom
+
+# Check odom -> base_link TF
+ros2 run tf2_ros tf2_echo odom base_link
+
+# Check swerve controller odom TF publishing state
+ros2 param get /antbot_swerve_controller enable_odom_tf
+
+# Check Nav2 controller lifecycle state
+ros2 lifecycle get /controller_server
+
+# Check ros2_control controller state
+ros2 control list_controllers
+```
+离线 Step2 现在可通过 `offline_waypoint_editor.launch.py` 的
+`show_3d_cloud`、`pointcloud_path`、`pointcloud_metadata` 参数叠加 binary
+PCD；完整命令和坐标系限制见仓库
+`docs/pointcloud_map_workflow.md`。关闭 `show_3d_cloud` 时不启动离线点云
+节点，原 XML 航点编辑链保持不变。

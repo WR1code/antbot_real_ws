@@ -1,0 +1,2 @@
+The standalone src/vanjee_lidar_msg copy is the workspace-owned package.
+Ignore this vendored duplicate when colcon discovers packages.

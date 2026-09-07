@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<COLLADA xmlns="http://www.collada.org/2005/11/COLLADASchema" version="1.4.1">
+  <asset>
+    <unit meter="1"/>
+    <up_axis>Z_UP</up_axis>
+  </asset>
+  <library_images>
+    <image id="floor_texture">
+      <!-- 相对路径：从 meshes/ 目录向上到 robotcar_navigation/，再进入 textures/ -->
+      <init_from>../textures/map_texture.png</init_from>
+    </image>
+  </library_images>
+  <library_materials>
+    <material id="floor_mat">
+      <instance_effect url="#floor_effect"/>
+    </material>
+  </library_materials>
+  <library_effects>
+    <effect id="floor_effect">
+      <profile_COMMON>
+        <technique sid="common">
+          <lambert>
+            <diffuse>
+              <texture texture="floor_texture" texcoord="UVMap"/>
+            </diffuse>
+            <!-- 启用透明度，配合 Marker 的 alpha 实现半透明 -->
+            <transparent>
+              <texture texture="floor_texture" texcoord="UVMap"/>
+            </transparent>
+          </lambert>
+        </technique>
+      </profile_COMMON>
+    </effect>
+  </library_effects>
+  <library_geometries>
+    <geometry id="plane_geo">
+      <mesh>
+        <source id="positions">
+          <!-- 顶点坐标：边长=1，范围 [-0.5,0.5] -->
+          <float_array id="pos-array" count="12">-0.5 -0.5 0  0.5 -0.5 0  0.5 0.5 0  -0.5 0.5 0</float_array>
+          <technique_common>
+            <accessor source="#pos-array" count="4" stride="3">
+              <param name="X" type="float"/>
+              <param name="Y" type="float"/>
+              <param name="Z" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <source id="normals">
+          <float_array id="norm-array" count="12">0 0 1  0 0 1  0 0 1  0 0 1</float_array>
+          <technique_common>
+            <accessor source="#norm-array" count="4" stride="3">
+              <param name="X" type="float"/>
+              <param name="Y" type="float"/>
+              <param name="Z" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <source id="uvs">
+          <!-- UV 坐标：覆盖整个纹理，范围 0-1 -->
+          <float_array id="uv-array" count="8">0 0  1 0  1 1  0 1</float_array>
+          <technique_common>
+            <accessor source="#uv-array" count="4" stride="2">
+              <param name="S" type="float"/>
+              <param name="T" type="float"/>
+            </accessor>
+          </technique_common>
+        </source>
+        <vertices id="plane_vertices">
+          <input semantic="POSITION" source="#positions"/>
+        </vertices>
+        <triangles count="2">
+          <input semantic="VERTEX" source="#plane_vertices" offset="0"/>
+          <input semantic="NORMAL" source="#normals" offset="1"/>
+          <input semantic="TEXCOORD" source="#uvs" offset="2"/>
+          <p>0 0 0 1 1 1 2 2 2 0 0 0 2 2 2 3 3 3</p>
+        </triangles>
+      </mesh>
+    </geometry>
+  </library_geometries>
+  <library_visual_scenes>
+    <visual_scene id="scene">
+      <node id="plane">
+        <instance_geometry url="#plane_geo">
+          <bind_material>
+            <technique_common>
+              <instance_material symbol="Material" target="#floor_mat"/>
+            </technique_common>
+          </bind_material>
+        </instance_geometry>
+      </node>
+    </visual_scene>
+  </library_visual_scenes>
+  <scene>
+    <instance_visual_scene url="#scene"/>
+  </scene>
+</COLLADA>

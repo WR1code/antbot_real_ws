@@ -1,0 +1,246 @@
+# Nav2 uses AMCL with the saved 2D occupancy map and planar projections of the
+# live 3D clouds. LIO, truth deskew, and world-reference clouds do not
+# participate in this normal navigation chain.
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base_link
+    odom_topic: /odom
+    bt_loop_duration: 10
+    default_server_timeout: 20
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    expected_planner_frequency: 5.0
+    planner_plugins: ["GridBased"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.25
+      use_astar: true
+      allow_unknown: true
+
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 20.0
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.001
+    min_theta_velocity_threshold: 0.001
+    enable_stamped_cmd_vel: false
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["goal_checker"]
+    controller_plugins: ["FollowPath"]
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      required_movement_radius: 0.20
+      movement_time_allowance: 15.0
+    goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      stateful: true
+      xy_goal_tolerance: 0.20
+      yaw_goal_tolerance: 0.20
+    FollowPath:
+      plugin: "nav2_regulated_pure_pursuit_controller::RegulatedPurePursuitController"
+      desired_linear_vel: 0.45
+      lookahead_dist: 0.60
+      min_lookahead_dist: 0.30
+      max_lookahead_dist: 0.90
+      lookahead_time: 1.5
+      rotate_to_heading_angular_vel: 0.70
+      transform_tolerance: 0.20
+      use_velocity_scaled_lookahead_dist: true
+      min_approach_linear_velocity: 0.08
+      approach_velocity_scaling_dist: 0.60
+      use_collision_detection: true
+      max_allowed_time_to_collision_up_to_carrot: 1.0
+      use_regulated_linear_velocity_scaling: true
+      use_cost_regulated_linear_velocity_scaling: true
+      regulated_linear_scaling_min_radius: 0.90
+      regulated_linear_scaling_min_speed: 0.10
+      cost_scaling_dist: 0.60
+      cost_scaling_gain: 1.0
+      inflation_cost_scaling_factor: 2.0
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.50
+      max_angular_accel: 2.0
+      allow_reversing: false
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 8.0
+      publish_frequency: 4.0
+      global_frame: odom
+      robot_base_frame: base_link
+      rolling_window: true
+      width: 8
+      height: 8
+      resolution: 0.05
+      footprint: "[[0.43, 0.29], [0.43, -0.29], [-0.43, -0.29], [-0.43, 0.29]]"
+      plugins: ["dual_3d_obstacles", "inflation_layer"]
+      filters: ["keepout_filter", "speed_filter"]
+      dual_3d_obstacles:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: front_3d rear_3d
+        front_3d:
+          topic: /antbot/lidar/front_left/points_filtered
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          min_obstacle_height: 0.05
+          max_obstacle_height: 1.80
+          obstacle_min_range: 0.20
+          obstacle_max_range: 5.50
+          raytrace_min_range: 0.20
+          raytrace_max_range: 6.00
+        # Required rear blind-spot source.  Keep this independent from front.
+        rear_3d:
+          topic: /antbot/lidar/rear_right/points_filtered
+          data_type: "PointCloud2"
+          clearing: true
+          marking: true
+          min_obstacle_height: 0.05
+          max_obstacle_height: 1.80
+          obstacle_min_range: 0.20
+          obstacle_max_range: 5.50
+          raytrace_min_range: 0.20
+          raytrace_max_range: 6.00
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        inflation_radius: 0.70
+        cost_scaling_factor: 2.0
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: true
+        filter_info_topic: /costmap_filter_info
+      speed_filter:
+        plugin: "nav2_costmap_2d::SpeedFilter"
+        enabled: true
+        filter_info_topic: /speed_costmap_filter_info
+        speed_limit_topic: /speed_limit
+      always_send_full_costmap: true
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 2.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base_link
+      resolution: 0.05
+      track_unknown_space: true
+      footprint: "[[0.43, 0.29], [0.43, -0.29], [-0.43, -0.29], [-0.43, 0.29]]"
+      plugins: ["static_layer", "inflation_layer"]
+      filters: ["keepout_filter"]
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        enabled: true
+        inflation_radius: 0.70
+        cost_scaling_factor: 2.0
+      keepout_filter:
+        plugin: "nav2_costmap_2d::KeepoutFilter"
+        enabled: true
+        filter_info_topic: /costmap_filter_info
+      always_send_full_costmap: true
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    costmap_topic: local_costmap/costmap_raw
+    footprint_topic: local_costmap/published_footprint
+    cycle_frequency: 10.0
+    enable_stamped_cmd_vel: false
+    behavior_plugins: ["spin", "backup", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    global_frame: odom
+    robot_base_frame: base_link
+    transform_tolerance: 0.20
+    simulate_ahead_time: 2.0
+    max_rotational_vel: 0.8
+    min_rotational_vel: 0.2
+    rotational_acc_lim: 2.0
+
+lifecycle_manager_navigation:
+  ros__parameters:
+    use_sim_time: true
+    autostart: true
+    bond_timeout: 15.0
+    node_names:
+      - controller_server
+      - planner_server
+      - behavior_server
+      - bt_navigator
+
+lifecycle_manager_isaac_map:
+  ros__parameters:
+    use_sim_time: true
+    autostart: true
+    bond_timeout: 15.0
+    node_names:
+      - map_server
+
+map_server:
+  ros__parameters:
+    use_sim_time: true
+    yaml_filename: ""
+
+amcl:
+  ros__parameters:
+    use_sim_time: true
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    base_frame_id: base_link
+    global_frame_id: map
+    odom_frame_id: odom
+    scan_topic: /scan_0
+    robot_model_type: nav2_amcl::OmniMotionModel
+    laser_model_type: likelihood_field
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 20.0
+    laser_min_range: -1.0
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    pf_err: 0.05
+    pf_z: 0.99
+    resample_interval: 1
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    update_min_a: 0.2
+    update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    set_initial_pose: true
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0

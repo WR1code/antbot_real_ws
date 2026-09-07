@@ -1,0 +1,85 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.35
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 100; 100; 110
+      Enabled: true
+      Name: Ground Grid
+      Plane: XY
+      Plane Cell Count: 30
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Arrows: false
+      Show Axes: true
+      Show Names: false
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Live RGB-D
+      Topic:
+        Value: /antbot/rgbd/live_cloud
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Alpha: 0.45
+      Color Transformer: RGB8
+    - Class: rviz_default_plugins/PointCloud2
+      Enabled: true
+      Name: Accumulated RGB-D
+      Topic:
+        Value: /antbot/rgbd/accumulated_cloud
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Style: Points
+      Size (Pixels): 4
+      Size (m): 0.02
+      Alpha: 1.0
+      Color Transformer: RGB8
+    - Class: rviz_default_plugins/Path
+      Enabled: true
+      Name: Camera Path
+      Topic:
+        Value: /antbot/rgbd/camera_path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Line Style: Lines
+      Line Width: 0.03
+      Color: 80; 180; 255
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Coverage and Status
+      Topic:
+        Value: /antbot/rgbd/coverage_marker_array
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+  Global Options:
+    Background Color: 35; 35; 40
+    Fixed Frame: odom
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: RGB-D Scan
+      Distance: 8
+      Field of View: 0.785398
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Near Clip Distance: 0.01
+      Pitch: 0.65
+      Target Frame: <Fixed Frame>
+      Yaw: 0.8
+    Saved: ~

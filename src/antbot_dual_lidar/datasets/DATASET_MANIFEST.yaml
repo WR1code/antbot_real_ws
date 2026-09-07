@@ -1,0 +1,49 @@
+schema_version: 1
+status: pending_recording
+storage: mcap
+source_control_tracks_bags: false
+required_profiles:
+  lidar: navigation
+  imu: ideal
+primary_imu_topic: /antbot/imu/data
+auxiliary_imu_fused: false
+cases:
+  - {id: 01_static, status: PENDING}
+  - {id: 02_forward, status: PENDING}
+  - {id: 03_backward, status: PENDING}
+  - {id: 04_strafe_left, status: PENDING}
+  - {id: 05_strafe_right, status: PENDING}
+  - {id: 06_yaw_left, status: PENDING}
+  - {id: 07_yaw_right, status: PENDING}
+  - {id: 08_diagonal, status: PENDING}
+  - {id: 09_forward_yaw, status: PENDING}
+  - {id: 10_strafe_yaw, status: PENDING}
+  - {id: 11_stop_go, status: PENDING}
+  - {id: 12_reset_recovery, status: PENDING}
+required_topics:
+  - /clock
+  - /antbot/lidar/front_left/points_lio
+  - /antbot/lidar/rear_right/points_lio
+  - /antbot/imu/data_raw
+  - /antbot/imu/data
+  - /antbot/ground_truth/odom
+  - /odom
+  - /tf
+  - /tf_static
+  - /joint_states
+  - /cmd_vel
+optional_topics:
+  - /antbot/lidar/front_left/imu
+  - /antbot/lidar/rear_right/imu
+  - /antbot/lidar/front_left/points_deskewed_gt
+  - /antbot/lidar/rear_right/points_deskewed_gt
+minimal_front_baseline:
+  evidence_manifest: ${ANTBOT_DATA_ROOT}/phase2a_minimal_dataset_manifest.yaml
+  time_model: candidate_C_not_selected
+  status: RECORDED_FAILED_STRICT_IMU_BOUNDARY_COVERAGE
+  cases:
+    - {id: 01_static, raw_clouds: 39, deskew_clouds: 13, imu: 462, status: RECORDED_FAILED_VALIDATION}
+    - {id: 02_left_rotation, raw_clouds: 47, deskew_clouds: 14, imu: 556, status: RECORDED_FAILED_VALIDATION}
+    - {id: 03_right_rotation, raw_clouds: 48, deskew_clouds: 14, imu: 568, status: RECORDED_FAILED_VALIDATION}
+    - {id: 04_wall_motion, raw_clouds: 49, deskew_clouds: 16, imu: 584, status: RECORDED_FAILED_VALIDATION}
+    - {id: 05_column_motion, raw_clouds: 53, deskew_clouds: 17, imu: 623, status: RECORDED_FAILED_VALIDATION}

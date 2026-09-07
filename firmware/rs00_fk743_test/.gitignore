@@ -1,0 +1,6 @@
+/build/
+firmware/DebugConfig/
+firmware/MDK-ARM/*.uvguix.*
+firmware/MDK-ARM/*.uvoptx
+firmware/MDK-ARM/Objects/
+firmware/MDK-ARM/Listings/

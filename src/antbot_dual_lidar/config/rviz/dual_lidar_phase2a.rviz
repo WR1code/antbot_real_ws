@@ -1,0 +1,139 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 28; 31; 36
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Ground grid
+      Enabled: true
+      Plane: XY
+      Cell Size: 0.5
+    - Class: rviz_default_plugins/RobotModel
+      Name: AntBot
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /antbot/robot_description
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/TF
+      Name: TF tree
+      Enabled: true
+      Frame Timeout: 15
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left native raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points_raw_native
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 72; 72
+      Decay Time: 0.3
+      Queue Size: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right native raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points_raw_native
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 64; 160; 255
+      Decay Time: 0.3
+      Queue Size: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left truth deskew
+      Enabled: false
+      Topic:
+        Value: /antbot/lidar/front_left/points_deskew_truth
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 220; 64
+      Decay Time: 0.3
+      Queue Size: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right truth deskew
+      Enabled: false
+      Topic:
+        Value: /antbot/lidar/rear_right/points_deskew_truth
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 64; 255; 200
+      Decay Time: 0.3
+      Queue Size: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left world reference
+      Enabled: false
+      Topic:
+        Value: /antbot/lidar/front_left/points_world_reference
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 1
+      Color Transformer: FlatColor
+      Color: 255; 128; 255
+      Decay Time: 0.3
+      Queue Size: 5
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right world reference
+      Enabled: false
+      Topic:
+        Value: /antbot/lidar/rear_right/points_world_reference
+        Reliability Policy: Best Effort
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Depth: 5
+      Style: Points
+      Size (Pixels): 1
+      Color Transformer: FlatColor
+      Color: 128; 255; 255
+      Decay Time: 0.3
+      Queue Size: 5
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 8
+      Pitch: 0.55
+      Yaw: 0.75
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.4
+Window Geometry:
+  Width: 1500
+  Height: 900

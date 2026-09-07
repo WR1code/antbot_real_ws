@@ -1,0 +1,165 @@
+<?xml version="1.0" ?>
+<!--
+  UMR concept-v2 body.  Visual details are intentionally richer than the
+  collision model; all control joints and frames remain compatible.
+  base_link origin: ground plane, +X front, +Y left, +Z up.
+-->
+<robot name="base" xmlns:xacro="http://ros.org/wiki/xacro">
+  <xacro:macro name="Base">
+    <link name="base_link">
+      <inertial>
+        <origin xyz="0 0 0.225" rpy="0 0 0"/>
+        <mass value="78.0"/>
+        <inertia ixx="2.56" ixy="0" ixz="0" iyy="5.14" iyz="0" izz="6.37"/>
+      </inertial>
+
+      <!-- Rounded/tapered black lower chassis: z=0.095..0.275 m -->
+      <visual>
+        <origin xyz="0 0 0.185" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_lower_body.stl"/></geometry>
+        <material name="umr_dark"/>
+      </visual>
+
+      <!-- White shoulder shell: broad at the bottom and tapered toward the roof -->
+      <visual>
+        <origin xyz="0 0 0.300" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_upper_shell.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+
+      <!-- Black raised equipment box and white top payload plate -->
+      <visual>
+        <origin xyz="0 0 0.357" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_black_riser.stl"/></geometry>
+        <material name="umr_black"/>
+      </visual>
+      <visual>
+        <origin xyz="0 0 0.390" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_top_plate.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+
+      <!-- Large white trapezoid service doors on both sides -->
+      <visual>
+        <origin xyz="0 0.266 0" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_side_service_panel.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+      <visual>
+        <origin xyz="0 -0.266 0" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_side_service_panel.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+
+      <!-- Front/rear white fascia and black center recesses -->
+      <visual>
+        <origin xyz="0.414 0 0" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_front_fascia.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+      <visual>
+        <origin xyz="-0.414 0 0" rpy="0 0 ${pi}"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_front_fascia.stl"/></geometry>
+        <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+      </visual>
+      <visual>
+        <origin xyz="0.412 0 0" rpy="0 0 0"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_front_recess.stl"/></geometry>
+        <material name="umr_black"/>
+      </visual>
+      <visual>
+        <origin xyz="-0.412 0 0" rpy="0 0 ${pi}"/>
+        <geometry><mesh filename="package://antbot_description/meshes/umr_front_recess.stl"/></geometry>
+        <material name="umr_black"/>
+      </visual>
+
+      <!-- Blue corner light bars with black bezels, front and rear -->
+      <xacro:property name="face_x" value="0.420"/>
+      <xacro:property name="light_y" value="0.176"/>
+      <visual><origin xyz="${face_x} ${light_y} 0.296"/><geometry><box size="0.014 0.128 0.028"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="${face_x} ${light_y} 0.296"/><geometry><box size="0.016 0.108 0.012"/></geometry><material name="umr_blue"/></visual>
+      <visual><origin xyz="${face_x} ${-light_y} 0.296"/><geometry><box size="0.014 0.128 0.028"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="${face_x} ${-light_y} 0.296"/><geometry><box size="0.016 0.108 0.012"/></geometry><material name="umr_blue"/></visual>
+      <visual><origin xyz="${-face_x} ${light_y} 0.296"/><geometry><box size="0.014 0.128 0.028"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="${-face_x} ${light_y} 0.296"/><geometry><box size="0.016 0.108 0.012"/></geometry><material name="umr_blue"/></visual>
+      <visual><origin xyz="${-face_x} ${-light_y} 0.296"/><geometry><box size="0.014 0.128 0.028"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="${-face_x} ${-light_y} 0.296"/><geometry><box size="0.016 0.108 0.012"/></geometry><material name="umr_blue"/></visual>
+
+      <!-- Thin side accent lights, visible in top view -->
+      <visual><origin xyz="0 0.272 0.296"/><geometry><box size="0.105 0.014 0.027"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="0 0.274 0.296"/><geometry><box size="0.086 0.015 0.011"/></geometry><material name="umr_blue"/></visual>
+      <visual><origin xyz="0 -0.272 0.296"/><geometry><box size="0.105 0.014 0.027"/></geometry><material name="umr_black"/></visual>
+      <visual><origin xyz="0 -0.274 0.296"/><geometry><box size="0.086 0.015 0.011"/></geometry><material name="umr_blue"/></visual>
+
+      <!-- Front/rear vertical dual-lens corner sensor pods -->
+      <xacro:property name="pod_y" value="0.205"/>
+      <xacro:property name="pod_z1" value="0.180"/>
+      <xacro:property name="pod_z2" value="0.220"/>
+      <xacro:macro name="front_pod" params="x y direction">
+        <visual><origin xyz="${x} ${y} 0.200"/><geometry><box size="0.016 0.055 0.095"/></geometry><material name="umr_black"/></visual>
+        <visual><origin xyz="${x + direction*0.010} ${y} ${pod_z1}" rpy="0 ${pi/2} 0"/><geometry><cylinder radius="0.012" length="0.006"/></geometry><material name="metal_silver"/></visual>
+        <visual><origin xyz="${x + direction*0.014} ${y} ${pod_z1}" rpy="0 ${pi/2} 0"/><geometry><cylinder radius="0.007" length="0.004"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.010} ${y} ${pod_z2}" rpy="0 ${pi/2} 0"/><geometry><cylinder radius="0.012" length="0.006"/></geometry><material name="metal_silver"/></visual>
+        <visual><origin xyz="${x + direction*0.014} ${y} ${pod_z2}" rpy="0 ${pi/2} 0"/><geometry><cylinder radius="0.007" length="0.004"/></geometry><material name="sensor_glass"/></visual>
+      </xacro:macro>
+      <xacro:front_pod x="0.416" y="${pod_y}" direction="1"/>
+      <xacro:front_pod x="0.416" y="${-pod_y}" direction="1"/>
+      <xacro:front_pod x="-0.416" y="${pod_y}" direction="-1"/>
+      <xacro:front_pod x="-0.416" y="${-pod_y}" direction="-1"/>
+
+      <!-- Paired horizontal center camera modules on front and rear -->
+      <xacro:macro name="center_camera_pair" params="x direction">
+        <visual><origin xyz="${x} 0.055 0.200"/><geometry><box size="0.017 0.072 0.034"/></geometry><material name="umr_deep_black"/></visual>
+        <visual><origin xyz="${x} -0.055 0.200"/><geometry><box size="0.017 0.072 0.034"/></geometry><material name="umr_deep_black"/></visual>
+        <visual><origin xyz="${x + direction*0.011} 0.036 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.011} 0.055 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.011} 0.074 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.011} -0.036 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.011} -0.055 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+        <visual><origin xyz="${x + direction*0.011} -0.074 0.200"/><geometry><sphere radius="0.0045"/></geometry><material name="sensor_glass"/></visual>
+      </xacro:macro>
+      <xacro:center_camera_pair x="0.420" direction="1"/>
+      <xacro:center_camera_pair x="-0.420" direction="-1"/>
+
+      <!-- Slanted ventilation slots on both side panels -->
+      <xacro:macro name="vent_group" params="y side_sign x_center angle">
+        <visual><origin xyz="${x_center-0.035} ${y} 0.247" rpy="0 ${angle} 0"/><geometry><box size="0.048 0.014 0.011"/></geometry><material name="umr_black"/></visual>
+        <visual><origin xyz="${x_center} ${y} 0.247" rpy="0 ${angle} 0"/><geometry><box size="0.048 0.014 0.011"/></geometry><material name="umr_black"/></visual>
+        <visual><origin xyz="${x_center+0.035} ${y} 0.247" rpy="0 ${angle} 0"/><geometry><box size="0.048 0.014 0.011"/></geometry><material name="umr_black"/></visual>
+      </xacro:macro>
+      <xacro:vent_group y="0.273" side_sign="1" x_center="0.270" angle="${radians(35)}"/>
+      <xacro:vent_group y="0.273" side_sign="1" x_center="-0.270" angle="${radians(-35)}"/>
+      <xacro:vent_group y="-0.273" side_sign="-1" x_center="0.270" angle="${radians(35)}"/>
+      <xacro:vent_group y="-0.273" side_sign="-1" x_center="-0.270" angle="${radians(-35)}"/>
+
+      <!-- Subtle panel seams and fasteners on the front/rear fascia -->
+      <visual><origin xyz="0.421 0.168 0.301"/><geometry><box size="0.010 0.003 0.056"/></geometry><material name="panel_seam"/></visual>
+      <visual><origin xyz="0.421 -0.168 0.301"/><geometry><box size="0.010 0.003 0.056"/></geometry><material name="panel_seam"/></visual>
+      <visual><origin xyz="-0.421 0.168 0.301"/><geometry><box size="0.010 0.003 0.056"/></geometry><material name="panel_seam"/></visual>
+      <visual><origin xyz="-0.421 -0.168 0.301"/><geometry><box size="0.010 0.003 0.056"/></geometry><material name="panel_seam"/></visual>
+      <xacro:macro name="fascia_screw" params="x y direction">
+        <visual><origin xyz="${x + direction*0.008} ${y} 0.276" rpy="0 ${pi/2} 0"/><geometry><cylinder radius="0.0045" length="0.004"/></geometry><material name="metal_silver"/></visual>
+      </xacro:macro>
+      <xacro:fascia_screw x="0.420" y="0.125" direction="1"/>
+      <xacro:fascia_screw x="0.420" y="0" direction="1"/>
+      <xacro:fascia_screw x="0.420" y="-0.125" direction="1"/>
+      <xacro:fascia_screw x="-0.420" y="0.125" direction="-1"/>
+      <xacro:fascia_screw x="-0.420" y="0" direction="-1"/>
+      <xacro:fascia_screw x="-0.420" y="-0.125" direction="-1"/>
+
+      <!-- Simplified collision hulls: no decorative details -->
+      <collision><origin xyz="0 0 0.185"/><geometry><box size="0.780 0.480 0.180"/></geometry></collision>
+      <collision><origin xyz="0 0 0.305"/><geometry><box size="0.700 0.420 0.145"/></geometry></collision>
+      <collision><origin xyz="0 0 0.390"/><geometry><box size="0.660 0.450 0.040"/></geometry></collision>
+    </link>
+
+    <material name="umr_white"><color rgba="0.94 0.95 0.96 1.0"/></material>
+    <material name="umr_dark"><color rgba="0.085 0.090 0.100 1.0"/></material>
+    <material name="umr_black"><color rgba="0.025 0.030 0.036 1.0"/></material>
+    <material name="umr_deep_black"><color rgba="0.010 0.013 0.018 1.0"/></material>
+    <material name="umr_blue"><color rgba="0.075 0.40 1.00 1.0"/></material>
+    <material name="metal_silver"><color rgba="0.66 0.69 0.73 1.0"/></material>
+    <material name="sensor_glass"><color rgba="0.025 0.070 0.120 1.0"/></material>
+    <material name="panel_seam"><color rgba="0.38 0.40 0.43 1.0"/></material>
+  </xacro:macro>
+</robot>

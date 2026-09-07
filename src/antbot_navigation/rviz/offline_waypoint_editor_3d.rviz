@@ -1,0 +1,171 @@
+Panels:
+  - Class: robotcar_navigation/WaypointManagerPanel
+    Name: 航点与巡航组
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Tool Properties
+    Name: Tool Properties
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.35
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 120; 120; 125
+      Enabled: true
+      Name: Ground Grid
+      Plane: XY
+      Plane Cell Count: 30
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/Map
+      Name: Occupancy Map
+      Enabled: true
+      Alpha: 0.72
+      Color Scheme: map
+      Draw Behind: true
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Offline 3D Cloud
+      Enabled: true
+      Topic:
+        Value: /antbot/offline_map_points
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Style: Points
+      Size (Pixels): 1
+      Size (m): 0.025
+      Alpha: 0.55
+      Color Transformer: AxisColor
+      Axis: Z
+      Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 3
+        Min Value: -0.2
+        Value: true
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Step1 RGB-D Color Cloud
+      Enabled: true
+      Topic:
+        Value: /antbot/rgbd/offline_cloud
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+      Style: Points
+      Size (Pixels): 4
+      Size (m): 0.02
+      Alpha: 1.0
+      Color Transformer: RGB8
+      Use Fixed Frame: true
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Filter (Regex): (map|odom|base_link|.*lidar.*)
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /antbot/robot_description
+      Alpha: 1.0
+    - Class: rviz_default_plugins/InteractiveMarkers
+      Enabled: true
+      Interactive Markers Namespace: /waypoints_move
+      Name: Waypoints
+      Show Axes: false
+      Show Descriptions: true
+      Show Visual Aids: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Waypoint Labels
+      Topic:
+        Value: /text_marker
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 100
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Named Keepout Zones
+      Topic:
+        Value: /waterplus/keepout_markers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
+      Name: Named Speed Zones
+      Topic:
+        Value: /waterplus/speed_zone_markers
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+        History Policy: Keep Last
+        Depth: 1
+  Enabled: true
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/SetInitialPose
+      Topic:
+        Value: /initialpose
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+    - Class: robotcar_navigation/AddWaypoint
+      Topic: /waterplus/add_waypoint
+      Waypoint Name: ""
+    - Class: robotcar_navigation/AddCharger
+      Topic: /waterplus/add_charger
+      Charger Name: ""
+    - Class: robotcar_navigation/AddKeepoutZone
+      Topic: /waterplus/add_keepout
+      Zone Name: 临时禁区
+      形状: 矩形
+      当前宽度 X (m): 1
+      当前高度 Y (m): 1
+    - Class: robotcar_navigation/AddSpeedZone
+      Topic: /waterplus/add_speed_zone
+      Zone Name: 低速区
+      形状: 矩形
+      当前宽度 X (m): 2
+      当前高度 Y (m): 2
+      Max Speed (m/s): 0.3
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Orbit 3D
+      Distance: 12
+      Pitch: 0.85
+      Yaw: 0.785398
+      Target Frame: <Fixed Frame>
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Near Clip Distance: 0.01
+    Saved: ~

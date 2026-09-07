@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Waterplus>
+    <waypoint name="02">
+        <pose>
+            <position x="-1.69065" y="0.49472" z="0"/>
+            <orientation x="0" y="0" z="0.00401885" w="0.999992"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="03">
+        <pose>
+            <position x="-1.00935" y="0.468639" z="0"/>
+            <orientation x="0" y="0" z="-0.710287" w="0.703912"/>
+        </pose>
+        <action>detect</action>
+    </waypoint>
+    <waypoint name="04">
+        <pose>
+            <position x="-1.02115" y="0.477999" z="0"/>
+            <orientation x="0" y="0" z="0.706547" w="0.707666"/>
+        </pose>
+        <action>detect</action>
+    </waypoint>
+    <waypoint name="05">
+        <pose>
+            <position x="-1.02332" y="0.465298" z="0"/>
+            <orientation x="0" y="0" z="0.00583553" w="0.999983"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="06">
+        <pose>
+            <position x="-0.166583" y="0.459462" z="0"/>
+            <orientation x="0" y="0" z="-0.709136" w="0.705072"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="07">
+        <pose>
+            <position x="-0.0953913" y="-1.69924" z="0"/>
+            <orientation x="0" y="0" z="-0.00552486" w="0.999985"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="08">
+        <pose>
+            <position x="1.07195" y="-1.71751" z="0"/>
+            <orientation x="0" y="0" z="0.703449" w="0.710745"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="09">
+        <pose>
+            <position x="1.09574" y="-1.1091" z="0"/>
+            <orientation x="0" y="0" z="0.0036279" w="0.999993"/>
+        </pose>
+        <action>detect</action>
+    </waypoint>
+    <waypoint name="10">
+        <pose>
+            <position x="1.10098" y="-1.10049" z="0"/>
+            <orientation x="0" y="0" z="0.7067" w="0.707513"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="11">
+        <pose>
+            <position x="1.08602" y="1.67508" z="0"/>
+            <orientation x="-1.42318e-11" y="-1.16093e-09" z="0.999925" w="-0.012281"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="12">
+        <pose>
+            <position x="1.71837" y="1.69144" z="0"/>
+            <orientation x="0" y="0" z="0.999999" w="-0.00154455"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="01">
+        <pose>
+            <position x="-1.66839" y="1.6094" z="0"/>
+            <orientation x="0" y="0" z="-0.709321" w="0.704886"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="13">
+        <pose>
+            <position x="0.43798" y="0.0872656" z="0"/>
+            <orientation x="0" y="0" z="0.567226" w="0.823562"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+</Waterplus>

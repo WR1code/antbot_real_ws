@@ -1,0 +1,10 @@
+/build/
+/install/
+/log/
+/dist/
+**/__pycache__/
+**/.pytest_cache/
+*.pyc
+*.pyo
+*.swp
+navigation_data/logs/

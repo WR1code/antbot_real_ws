@@ -1,0 +1,169 @@
+Panels:
+  - Class: robotcar_navigation/VehicleStatusPanel
+    Name: 车辆状态与相机
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Alpha: 0.45
+      Cell Size: 1
+      Class: rviz_default_plugins/Grid
+      Color: 100; 100; 110
+      Enabled: true
+      Name: Ground Grid
+      Offset:
+        X: 0
+        Y: 0
+        Z: -0.03
+      Plane: XY
+      Plane Cell Count: 30
+      Reference Frame: <Fixed Frame>
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Arrows: false
+      Show Axes: true
+      Show Names: false
+      Update Interval: 0
+      Filter (Regex): (map|odom|base_link|.*wheel.*|.*steering.*|.*lidar.*|camera.*|imu_link)
+    - Class: rviz_default_plugins/RobotModel
+      Name: ANTBot
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /antbot/robot_description
+    - Class: rviz_default_plugins/Map
+      Name: SLAM Map
+      Enabled: true
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Alpha: 0.75
+      Color Scheme: map
+    - Class: rviz_default_plugins/LaserScan
+      Name: Front LiDAR
+      Enabled: false
+      Topic:
+        Value: /scan_0
+        Reliability Policy: Best Effort
+      Size (m): 0.03
+      Color Transformer: FlatColor
+      Color: 255; 80; 80
+      Style: Flat Squares
+    - Class: rviz_default_plugins/LaserScan
+      Name: Rear LiDAR
+      Enabled: false
+      Topic:
+        Value: /scan_1
+        Reliability Policy: Best Effort
+      Size (m): 0.03
+      Color Transformer: FlatColor
+      Color: 80; 180; 255
+      Style: Flat Squares
+    - Class: rviz_default_plugins/Odometry
+      Name: Isaac Odometry
+      Enabled: true
+      Topic:
+        Value: /odometry/filtered
+        Reliability Policy: Reliable
+      Keep: 100
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front 3D LiDAR
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points_raw_native
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 1
+      Alpha: 0.16
+      Color Transformer: FlatColor
+      Color: 255; 80; 80
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear 3D LiDAR
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points_raw_native
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 1
+      Alpha: 0.16
+      Color Transformer: FlatColor
+      Color: 80; 150; 255
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Accumulated 3D Map
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/map_points
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Style: Points
+      Size (Pixels): 1
+      Alpha: 0.28
+      Color Transformer: AxisColor
+      Axis: Z
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Live RGB-D Color
+      Enabled: true
+      Topic:
+        Value: /antbot/rgbd/live_cloud
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 3
+      Alpha: 0.75
+      Color Transformer: RGB8
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Accumulated RGB-D Color
+      Enabled: true
+      Topic:
+        Value: /antbot/rgbd/accumulated_cloud
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Style: Points
+      Size (Pixels): 4
+      Size (m): 0.02
+      Alpha: 1.0
+      Color Transformer: RGB8
+    - Class: rviz_default_plugins/Path
+      Name: RGB-D Camera Path
+      Enabled: true
+      Topic:
+        Value: /antbot/rgbd/camera_path
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Line Style: Lines
+      Line Width: 0.03
+      Color: 80; 180; 255
+    - Class: rviz_default_plugins/MarkerArray
+      Name: RGB-D Coverage and Status
+      Enabled: true
+      Topic:
+        Value: /antbot/rgbd/coverage_marker_array
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+  Global Options:
+    Background Color: 48; 48; 48
+    Fixed Frame: map
+    Frame Rate: 30
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Interact
+      Hide Inactive Objects: true
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Mapping Orbit 3D
+      Distance: 12
+      Field of View: 0.785398
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Near Clip Distance: 0.01
+      Pitch: 0.785398
+      Target Frame: <Fixed Frame>
+      Yaw: 0.785398
+    Saved: ~

@@ -1,0 +1,99 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 32; 36; 40
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Ground grid
+      Enabled: true
+      Plane: XY
+      Cell Size: 0.5
+    - Class: rviz_default_plugins/RobotModel
+      Name: AntBot model
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /antbot/robot_description
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Frame Timeout: 15
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 72; 72
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 67; 135; 255
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left filtered
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points_filtered
+      Style: Flat Squares
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Color: 255; 210; 64
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right filtered
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points_filtered
+      Style: Flat Squares
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Color: 64; 240; 190
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/Odometry
+      Name: Odometry
+      Enabled: true
+      Topic:
+        Value: /odom
+      Keep: 100
+      Position Tolerance: 0.05
+      Angle Tolerance: 0.05
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/FocusCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 5
+      Pitch: 0.55
+      Yaw: 0.75
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.4
+Window Geometry:
+  Width: 1500
+  Height: 900

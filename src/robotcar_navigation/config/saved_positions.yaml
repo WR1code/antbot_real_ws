@@ -1,0 +1,267 @@
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 1.7000
+#       y: 1.7000
+#       z: 0.0000
+#     orientation:
+#       x: -0.0000
+#       y: -0.0000
+#       z: 1.0000
+#       w: 0.0000
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 0.5000
+#       y: 1.7000
+#       z: 0.0000
+#     orientation:
+#       x: -0.0000
+#       y: -0.0000
+#       z: 1.0000
+#       w: 0.0000
+# - frame_id: map
+#   pose:
+#     position:
+#       x: -0.9000
+#       y: 1.7000
+#       z: 0.0000
+#     orientation:
+#       x: -0.0000
+#       y: -0.0000
+#       z: 1.0000
+#       w: 0.0000
+# - frame_id: map
+#   pose:
+#     position:
+#       x: -1.7000
+#       y: 1.7000
+#       z: 0.0000
+#     orientation:
+#       x: -0.0000
+#       y: -0.0000
+#       z: 1.0000
+#       w: 0.0000
+- frame_id: map
+  pose:
+    position:
+      x: -1.7000
+      y: 1.7000
+      z: 0.0000
+    orientation:
+      x: 0.0000
+      y: -0.0000
+      z: -0.7071
+      w: 0.7071
+# - frame_id: map
+#   pose:
+#     position:
+#       x: -1.7000
+#       y: 0.5000
+#       z: -0.0000
+#     orientation:
+#       x: 0.0000
+#       y: -0.0000
+#       z: -0.7071
+#       w: 0.7071
+- frame_id: map
+  pose:
+    position:
+      x: -1.7000
+      y: 0.5000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: 0.0000
+      z: -0.0000
+      w: 1.0000
+# - frame_id: map
+#   pose:
+#     position:
+#       x: -0.9000
+#       y: 0.5000
+#       z: -0.0000
+#     orientation:
+#       x: -0.0000
+#       y: -0.0000
+#       z: -0.0000
+#       w: 1.0000
+- frame_id: map
+  action: "detect"
+  pose:
+    position:
+      x: -0.9000
+      y: 0.5000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: -0.0000
+      z: 0.7071
+      w: 0.7071
+- frame_id: map
+  action: "detect"
+  pose:
+    position:
+      x: -0.9000
+      y: 0.5000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: -0.0000
+      z: -0.7071
+      w: 0.7071
+- frame_id: map
+  pose:
+    position:
+      x: -0.9000
+      y: 0.5000
+      z: -0.0000
+    orientation:
+      x: -0.0000
+      y: -0.0000
+      z: -0.0000
+      w: 1.0000
+- frame_id: map
+  pose:
+    position:
+      x: -0.1000
+      y: 0.5000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: -0.0000
+      z: -0.7071
+      w: 0.7071
+- frame_id: map
+  pose:
+    position:
+      x: -0.1000
+      y: -0.2000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: -0.0000
+      z: -0.7071
+      w: 0.7071
+# - frame_id: map
+#   pose:
+#     position:
+#       x: -0.1000
+#       y: -1.7000
+#       z: -0.0000
+#     orientation:
+#       x: 0.0000
+#       y: -0.0000
+#       z: -0.7071
+#       w: 0.7071
+- frame_id: map
+  pose:
+    position:
+      x: -0.1000
+      y: -1.7000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: 0.0000
+      z: -0.0000
+      w: 1.0000
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 1.1000
+#       y: -1.7000
+#       z: -0.0000
+#     orientation:
+#       x: 0.0000
+#       y: 0.0000
+#       z: -0.0000
+#       w: 1.0000
+- frame_id: map
+  pose:
+    position:
+      x: 1.1000
+      y: -1.7000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: 0.0000
+      z: 0.7071
+      w: 0.7071
+- frame_id: map
+  action: "detect"
+  pose:
+    position:
+      x: 1.1000
+      y: -1.1000
+      z: -0.0000
+    orientation:
+      x: -0.0000
+      y: -0.0000
+      z: 0.0000
+      w: 1.0000
+- frame_id: map
+  pose:
+    position:
+      x: 1.1000
+      y: -1.1000
+      z: -0.0000
+    orientation:
+      x: 0.0000
+      y: 0.0000
+      z: 0.7071
+      w: 0.7071
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 1.1000
+#       y: -0.5000
+#       z: -0.0000
+#     orientation:
+#       x: 0.0000
+#       y: 0.0000
+#       z: 0.7071
+#       w: 0.7071
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 1.1000
+#       y: 0.6000
+#       z: -0.0000
+#     orientation:
+#       x: 0.0000
+#       y: 0.0000
+#       z: 0.7071
+#       w: 0.7071
+# - frame_id: map
+#   pose:
+#     position:
+#       x: 1.1000
+#       y: 1.7000
+#       z: 0.0000
+#     orientation:
+#       x: 0.0000
+#       y: 0.0000
+#       z: 0.7071
+#       w: 0.7071
+- frame_id: map
+  pose:
+    position:
+      x: 1.1000
+      y: 1.7000
+      z: 0.0000
+    orientation:
+      x: -0.0000
+      y: -0.0000
+      z: 1.0000
+      w: 0.0000
+- frame_id: map
+  pose:
+    position:
+      x: 1.7000
+      y: 1.7000
+      z: 0.0000
+    orientation:
+      x: -0.0000
+      y: -0.0000
+      z: 1.0000
+      w: 0.0000

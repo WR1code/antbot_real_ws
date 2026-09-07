@@ -1,0 +1,51 @@
+<library path="robotcar_navigation_rviz_plugins">
+  <class
+    name="robotcar_navigation/AddWaypoint"
+    type="robotcar_navigation::rviz_plugins::AddWaypointTool"
+    base_class_type="rviz_common::Tool">
+    <description>
+      Tool for adding waypoints on the ground plane in RViz2.
+    </description>
+  </class>
+  <class
+    name="robotcar_navigation/AddCharger"
+    type="robotcar_navigation::rviz_plugins::AddChargerTool"
+    base_class_type="rviz_common::Tool">
+    <description>
+      Tool for adding chargers on the ground plane in RViz2.
+    </description>
+  </class>
+  <class
+    name="robotcar_navigation/AddKeepoutZone"
+    type="robotcar_navigation::rviz_plugins::AddKeepoutZoneTool"
+    base_class_type="rviz_common::Tool">
+    <description>
+      Tool for adding named rectangular Nav2 keepout zones in RViz2.
+    </description>
+  </class>
+  <class
+    name="robotcar_navigation/AddSpeedZone"
+    type="robotcar_navigation::rviz_plugins::AddSpeedZoneTool"
+    base_class_type="rviz_common::Tool">
+    <description>
+      Tool for adding named rectangular Nav2 absolute-speed-limit zones in RViz2.
+    </description>
+  </class>
+  <class
+    name="robotcar_navigation/WaypointManagerPanel"
+    type="robotcar_navigation::rviz_plugins::WaypointManagerPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      RViz2 panel for renaming waypoints, switching map and waypoint groups,
+      and editing named patrol route groups.
+    </description>
+  </class>
+  <class
+    name="robotcar_navigation/VehicleStatusPanel"
+    type="robotcar_navigation::rviz_plugins::VehicleStatusPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      RViz2 panel showing odometry-feedback vehicle speed and the live RGB camera image.
+    </description>
+  </class>
+</library>

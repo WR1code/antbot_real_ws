@@ -1,0 +1,56 @@
+antbot_dual_lidar_preprocessor:
+  ros__parameters:
+    use_sim_time: true
+    lidar_profile: mapping
+    target_frame: base_link
+    tf_timeout_sec: 0.08
+    input_timeout_sec: 1.5
+    front_left:
+      input_topic: /antbot/lidar/front_left/points
+      output_topic: /antbot/lidar/front_left/points_filtered
+      min_range: 0.15
+      max_range: 20.0
+      min_height: 0.02
+      max_height: 2.0
+    rear_right:
+      input_topic: /antbot/lidar/rear_right/points
+      output_topic: /antbot/lidar/rear_right/points_filtered
+      min_range: 0.15
+      max_range: 20.0
+      min_height: 0.02
+      max_height: 2.0
+    body_filter:
+      enabled: true
+      # Cover the complete rotating-wheel envelope and the small body details.
+      # The former box ended at the nominal body skin, so grazing self returns
+      # were accumulated as isolated obstacle points along the driven path.
+      min_x: -0.48
+      max_x: 0.48
+      min_y: -0.34
+      max_y: 0.34
+      min_z: -0.10
+      max_z: 0.50
+
+antbot_dual_lidar_diagnostics:
+  ros__parameters:
+    use_sim_time: true
+    front_topic: /antbot/lidar/front_left/points
+    rear_topic: /antbot/lidar/rear_right/points
+    max_cloud_time_difference_sec: 0.05
+    cloud_timeout_sec: 1.5
+    minimum_expected_frequency: 5.0
+    report_period_sec: 2.0
+
+antbot_dual_lidar_synchronizer:
+  ros__parameters:
+    use_sim_time: true
+    front_topic: /antbot/lidar/front_left/points
+    rear_topic: /antbot/lidar/rear_right/points
+    front_output_topic: /antbot/lidar/synchronized/front_left
+    rear_output_topic: /antbot/lidar/synchronized/rear_right
+    strategy: approximate
+    maximum_pair_delta_sec: 0.02
+    expected_period_sec: 0.10
+    queue_size: 20
+    publish_synchronized: false
+    report_period_sec: 5.0

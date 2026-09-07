@@ -1,0 +1,15 @@
+# Apply as an override after rgbd_real_robot.yaml. It changes only source-facing
+# ROS parameters; core depth, synchronization, keyframe and pose guards are shared.
+phase4b_capture_node:
+  ros__parameters:
+    use_sim_time: true
+    color_topic: /antbot/camera/color/image_raw
+    depth_topic: /antbot/camera/depth/image_raw
+    camera_info_topic: /antbot/camera/color/camera_info
+    pose_mode: tf
+    pose_source: ground_truth
+    world_frame: odom
+    camera_frame: camera_color_optical_frame
+    dataset_name: simulation_rgbd_phase4b
+    robot_id: antbot_sim
+    sensor_id: front_rgbd

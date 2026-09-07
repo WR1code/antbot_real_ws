@@ -1,0 +1,153 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 28; 32; 36
+    Fixed Frame: map
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Ground Grid
+      Enabled: true
+      Plane: XY
+      Cell Size: 0.5
+      Color: 110; 110; 120
+    - Class: rviz_default_plugins/RobotModel
+      Name: RobotModel
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /antbot/robot_description
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+      Show Arrows: false
+      Show Axes: true
+      Show Names: true
+      Frame Timeout: 15
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front-left realtime 3D
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points_raw_native
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 255; 80; 80
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear-right realtime 3D
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points_raw_native
+        Reliability Policy: Best Effort
+      Style: Points
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 80; 150; 255
+      Decay Time: 0
+      Queue Size: 10
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Fixed-frame accumulated 3D map
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/map_points
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Style: Flat Squares
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+      Decay Time: 0
+      Queue Size: 2
+    - Class: rviz_default_plugins/Path
+      Name: Robot trajectory
+      Enabled: true
+      Topic:
+        Value: /antbot/trajectory
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Color: 255; 180; 0
+      Line Style: Lines
+      Line Width: 0.05
+    - Class: rviz_default_plugins/Map
+      Name: 2D Map
+      Enabled: true
+      Topic:
+        Value: /map
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Alpha: 0.55
+      Color Scheme: map
+      Draw Behind: true
+    - Class: rviz_default_plugins/Map
+      Name: Global Costmap
+      Enabled: true
+      Topic:
+        Value: /global_costmap/costmap
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Alpha: 0.35
+      Color Scheme: costmap
+    - Class: rviz_default_plugins/Map
+      Name: Local Costmap (front + rear 3D)
+      Enabled: true
+      Topic:
+        Value: /local_costmap/costmap
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Alpha: 0.50
+      Color Scheme: costmap
+    - Class: rviz_default_plugins/Path
+      Name: Nav2 Global Path
+      Enabled: true
+      Topic:
+        Value: /plan
+      Color: 0; 255; 0
+      Line Width: 0.08
+    - Class: rviz_default_plugins/Path
+      Name: Nav2 Local Path
+      Enabled: true
+      Topic:
+        Value: /local_plan
+      Color: 255; 255; 0
+    - Class: rviz_default_plugins/Polygon
+      Name: Robot Footprint
+      Enabled: true
+      Topic:
+        Value: /local_costmap/published_footprint
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+    - Class: rviz_default_plugins/PublishPoint
+      Single click: true
+      Topic:
+        Value: /clicked_point
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+    - Class: nav2_rviz_plugins/GoalTool
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Name: Orbit 3D
+      Distance: 11
+      Pitch: 0.72
+      Yaw: 0.78
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.3
+      Target Frame: <Fixed Frame>
+Window Geometry:
+  Width: 1600
+  Height: 950

@@ -1,0 +1,9 @@
+UMR concept-v2 modeling assumptions
+===================================
+Coordinate convention: +X front, +Y left, +Z up.
+Main body envelope: approximately 0.830 x 0.540 x 0.410 m.
+Wheel diameter: 0.160 m; wheel width: approximately 0.058 m.
+Wheelbase: 0.530 m; wheel-center track: 0.480 m.
+Visual surface details are inferred from the supplied concept image.
+Collision geometry and all eight actuated joint names remain unchanged.
+Top sensor diagonal: lidar at front-left/rear-right; short cylinder at front-right/rear-left.

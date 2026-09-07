@@ -1,0 +1,105 @@
+<?xml version="1.0" ?>
+<!--
+  UMR-style visual conversion built on the validated ANTBot 4WS/4WD skeleton.
+  The package and all eight actuated joint names remain unchanged.
+-->
+<robot name="antbot" xmlns:xacro="http://ros.org/wiki/xacro">
+  <!--
+    Keep argument resolution and calibration defaults ahead of every include.
+    Some direct Xacro importers process included macros before later arguments.
+  -->
+  <xacro:arg name="calibration_yaml_path" default=""/>
+  <xacro:property name="calibration_yaml_path_value"
+                  value="$(arg calibration_yaml_path)"
+                  scope="global"/>
+  <xacro:property name="calibration_config"
+                  value="${dict()}"
+                  scope="global"/>
+  <xacro:if value="${calibration_yaml_path_value != ''}">
+    <xacro:property name="calibration_config"
+                    value="${xacro.load_yaml(calibration_yaml_path_value)}"
+                    scope="global"/>
+  </xacro:if>
+
+  <xacro:include filename="$(find antbot_description)/urdf/sensors.xacro"/>
+  <xacro:include filename="$(find antbot_description)/urdf/base.xacro"/>
+  <xacro:include filename="$(find antbot_description)/urdf/wheel.xacro"/>
+  <xacro:include filename="$(find antbot_description)/urdf/ros2_control.xacro"/>
+
+  <!-- Photo/datasheet-based first-pass geometry -->
+  <xacro:property name="overall_length" value="0.830"/>
+  <xacro:property name="overall_width" value="0.540"/>
+  <xacro:property name="overall_height" value="0.410"/>
+  <xacro:property name="body_height" value="0.410"/>
+
+  <!-- Wheel proportions inferred from the supplied orthogonal/oblique views -->
+  <xacro:property name="wheelbase_length" value="0.530"/>
+  <xacro:property name="wheel_center_track" value="0.480"/>
+  <xacro:property name="steering_width" value="0.360"/>
+  <xacro:property name="wheel_radius" value="0.080"/>
+  <xacro:property name="wheel_width" value="0.058"/>
+  <xacro:property name="steering_height" value="${wheel_radius}"/>
+  <xacro:property name="wheel_offset" value="${(wheel_center_track - steering_width)/2}"/>
+
+  <!-- Existing wheel mesh is 205.943 mm diameter and 75.2 mm wide -->
+  <xacro:property name="wheel_mesh_scale" value="0.000777"/>
+  <xacro:property name="steering_mesh_scale" value="0.000750"/>
+
+  <xacro:Base/>
+
+  <xacro:SwerveWheelLeft position_name="front_left"
+                         x_pos="${wheelbase_length/2}" y_pos="${steering_width/2}"/>
+  <xacro:SwerveWheelRight position_name="front_right"
+                          x_pos="${wheelbase_length/2}" y_pos="${-steering_width/2}"/>
+  <xacro:SwerveWheelLeft position_name="rear_left"
+                         x_pos="${-wheelbase_length/2}" y_pos="${steering_width/2}"/>
+  <xacro:SwerveWheelRight position_name="rear_right"
+                          x_pos="${-wheelbase_length/2}" y_pos="${-steering_width/2}"/>
+
+  <!-- Approximate UMR sensor frames; refine after hardware measurements -->
+  <xacro:Sensors name="camera_stereo_front_depth" xyz="0.410 0.045 0.205" rpy="0.0 0.0 0.0"/>
+  <xacro:OpticalFrame name="camera_stereo_front_depth_optical" parent="camera_stereo_front_depth"/>
+  <xacro:SensorsRel parent="camera_stereo_front_depth" child="camera_stereo_front_rgb" xyz="0.0 -0.090 0.0" rpy="0.0 0.0 0.0"/>
+  <xacro:OpticalFrame name="camera_stereo_front_rgb_optical" parent="camera_stereo_front_rgb"/>
+
+  <xacro:CalibratedSensors name="camera_mono_left"
+    default_xyz="0.260 0.268 0.235" default_rpy="0.0 0.0 ${radians(90)}"
+    calibration_key="camera_left_extrinsic"/>
+  <xacro:OpticalFrame name="camera_mono_left_optical" parent="camera_mono_left"/>
+  <xacro:CalibratedSensors name="camera_mono_front"
+    default_xyz="0.416 0.0 0.215" default_rpy="0.0 0.0 0.0"
+    calibration_key="camera_front_extrinsic"/>
+  <xacro:OpticalFrame name="camera_mono_front_optical" parent="camera_mono_front"/>
+  <xacro:CalibratedSensors name="camera_mono_right"
+    default_xyz="0.260 -0.268 0.235" default_rpy="0.0 0.0 ${radians(-90)}"
+    calibration_key="camera_right_extrinsic"/>
+  <xacro:OpticalFrame name="camera_mono_right_optical" parent="camera_mono_right"/>
+  <xacro:Sensors name="camera_mono_back" xyz="-0.416 0.0 0.215" rpy="0.0 0.0 ${radians(180)}"/>
+  <xacro:OpticalFrame name="camera_mono_back_optical" parent="camera_mono_back"/>
+
+  <xacro:Sensors name="imu" xyz="0.0 0.0 0.250" rpy="0.0 0.0 0.0"/>
+  <xacro:Sensors name="gnss" xyz="0.0 0.0 0.405" rpy="0.0 0.0 0.0"/>
+  <xacro:Sensors name="magnetometer" xyz="0.0 0.0 0.255" rpy="0.0 0.0 0.0"/>
+
+  <!-- White-shoulder diagonal A: compact dome lidars, below the raised top plate -->
+  <xacro:CalibratedTopLidar name="lidar_2d_front"
+    default_xyz="0.322 0.222 0.344" default_rpy="0.0 0.0 0.0"
+    calibration_key="lidar_2d_front_extrinsic"/>
+  <xacro:CalibratedTopLidar name="lidar_2d_back"
+    default_xyz="-0.322 -0.222 0.344" default_rpy="0.0 0.0 ${radians(180)}"
+    calibration_key="lidar_2d_back_extrinsic"/>
+
+  <!-- White-shoulder diagonal B: two low black cylindrical units -->
+  <xacro:TopCornerCylinder name="top_cylinder_front_right"
+    xyz="0.322 -0.222 0.344" rpy="0.0 0.0 0.0"/>
+  <xacro:TopCornerCylinder name="top_cylinder_rear_left"
+    xyz="-0.322 0.222 0.344" rpy="0.0 0.0 0.0"/>
+  <xacro:CalibratedSensors name="lidar_3d"
+    default_xyz="0.0 0.0 0.430" default_rpy="0.0 0.0 0.0"
+    calibration_key="lidar_3d_extrinsic"/>
+  <xacro:SensorsRel parent="lidar_3d" child="lidar_3d_imu" xyz="0 0 0" rpy="0 0 0"/>
+
+  <xacro:Sensors name="robot_charging_coil" xyz="-0.410 0.0 0.140" rpy="0.0 0.0 0.0"/>
+
+  <xacro:antbot_ros2_control/>
+</robot>

@@ -1,0 +1,26 @@
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      global_frame: map
+      robot_base_frame: base_footprint
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      resolution: 0.03
+      footprint: "[[0.160, 0.135], [0.160, -0.135], [-0.160, -0.135], [-0.160, 0.135]]"
+      plugins: ["static_layer", "obstacle_layer", "inflation_layer"]
+      static_layer:
+        plugin: nav2_costmap_2d::StaticLayer
+        map_subscribe_transient_local: true
+      obstacle_layer:
+        plugin: nav2_costmap_2d::ObstacleLayer
+        observation_sources: scan
+        scan:
+          topic: /scan
+          data_type: LaserScan
+          marking: true
+          clearing: true
+      inflation_layer:
+        plugin: nav2_costmap_2d::InflationLayer
+        inflation_radius: 0.20
+        cost_scaling_factor: 3.0

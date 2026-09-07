@@ -1,0 +1,37 @@
+#ifndef BOARD_RELIABILITY_CONFIG_H
+#define BOARD_RELIABILITY_CONFIG_H
+
+/* These options are deliberately disabled until the board wiring is known.
+ * Enabling either option requires defining the corresponding GPIO port/pin
+ * in the build or in this file. */
+#define BOARD_EXTERNAL_WATCHDOG_ENABLE 0
+#define BOARD_EXTERNAL_WATCHDOG_EDGE_PERIOD_MS 500U
+
+#define BOARD_PHYSICAL_ESTOP_ENABLE 0
+#define BOARD_PHYSICAL_ESTOP_ACTIVE_STATE GPIO_PIN_RESET
+
+#if BOARD_EXTERNAL_WATCHDOG_ENABLE
+#ifndef BOARD_EXTERNAL_WATCHDOG_GPIO_PORT
+#error "Define BOARD_EXTERNAL_WATCHDOG_GPIO_PORT"
+#endif
+#ifndef BOARD_EXTERNAL_WATCHDOG_GPIO_PIN
+#error "Define BOARD_EXTERNAL_WATCHDOG_GPIO_PIN"
+#endif
+#ifndef BOARD_EXTERNAL_WATCHDOG_GPIO_CLOCK_ENABLE
+#error "Define BOARD_EXTERNAL_WATCHDOG_GPIO_CLOCK_ENABLE()"
+#endif
+#endif
+
+#if BOARD_PHYSICAL_ESTOP_ENABLE
+#ifndef BOARD_PHYSICAL_ESTOP_GPIO_PORT
+#error "Define BOARD_PHYSICAL_ESTOP_GPIO_PORT"
+#endif
+#ifndef BOARD_PHYSICAL_ESTOP_GPIO_PIN
+#error "Define BOARD_PHYSICAL_ESTOP_GPIO_PIN"
+#endif
+#ifndef BOARD_PHYSICAL_ESTOP_GPIO_CLOCK_ENABLE
+#error "Define BOARD_PHYSICAL_ESTOP_GPIO_CLOCK_ENABLE()"
+#endif
+#endif
+
+#endif

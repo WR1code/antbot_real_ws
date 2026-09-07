@@ -1,0 +1,14 @@
+status,profile,motion,window_sec,angle_error_deg,gravity_residual_m_s2,timestamp_regressions,duplicate_stamps,notes
+OBSERVED,ideal,static,0,,,0,0,gravity_z=9.8100004; motion windows pending
+PENDING,ideal,motion,1,,,,,
+PENDING,ideal,motion,2,,,,,
+PENDING,ideal,motion,5,,,,,
+PENDING,realistic,motion,1,,,,,
+PENDING,realistic,motion,2,,,,,
+PENDING,realistic,motion,5,,,,,
+EXECUTED,ideal,left_rotation,1,0.089355,,0,0,error_rad=0.00155954
+EXECUTED,ideal,left_rotation,2,-0.047139,,0,0,error_rad=-0.00082273
+EXECUTED,ideal,left_rotation,5,-0.266469,,0,0,error_rad=-0.00465076
+EXECUTED,ideal,right_rotation,1,0.107584,,0,0,error_rad=0.00187769
+EXECUTED,ideal,right_rotation,2,0.217532,,0,0,error_rad=0.00379666
+EXECUTED,ideal,right_rotation,5,0.678068,,0,0,error_rad=0.01183481

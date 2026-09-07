@@ -1,0 +1,40 @@
+rgbd_keyframe_recorder:
+  ros__parameters:
+    use_sim_time: true
+
+    rgb_topic: /antbot/camera/color/image_raw
+    depth_topic: /antbot/camera/depth/image_raw
+    color_info_topic: /antbot/camera/color/camera_info
+    depth_info_topic: /antbot/camera/depth/camera_info
+
+    fixed_frame: odom
+    camera_frame: camera_color_optical_frame
+
+    output_root: artifacts/rgbd_datasets
+    dataset_name: home_rgbd_01
+    auto_start: true
+    overwrite_existing: false
+
+    translation_threshold_m: 0.15
+    rotation_threshold_deg: 8.0
+    minimum_interval_sec: 0.30
+    maximum_interval_sec: 2.0
+    stationary_translation_epsilon_m: 0.005
+    stationary_rotation_epsilon_deg: 0.2
+
+    # Calibrated from the first lit Isaac run:
+    # min=18.02, p10=23.09, median=26.81, p90=32.91, max=61.05.
+    enable_blur_filter: true
+    minimum_laplacian_variance: 20.0
+    minimum_valid_depth_ratio: 0.30
+
+    minimum_depth_m: 0.10
+    maximum_depth_m: 20.0
+    save_float32_npy: true
+    save_uint16_png: true
+
+    sync_cache_size: 30
+    processing_queue_size: 8
+    subscription_depth: 10
+    tf_timeout_sec: 0.20
+    depth_semantics: distance_to_image_plane
