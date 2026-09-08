@@ -49,6 +49,10 @@ static float s_csp_limit_speed_rad_s = STEERING_CSP_LIMIT_SPEED_RAD_S;
 static float s_csp_limit_current_a = STEERING_CSP_LIMIT_CURRENT_A;
 
 static volatile uint32_t s_feedback_sequence[STEERING_MOTOR_COUNT];
+/* Type-2 feedback carries a cyclic four-turn angle, while mechPos/loc_ref are
+ * continuous turn-count positions.  Each stream is anchored by the startup
+ * mechPos parameter read before steering targets are accepted. */
+static bool s_position_unwrap_valid[STEERING_MOTOR_COUNT];
 static volatile uint32_t s_uid_sequence[STEERING_MOTOR_COUNT];
 static volatile uint32_t s_parameter_sequence[STEERING_MOTOR_COUNT];
 static volatile uint8_t s_parameter_result[STEERING_MOTOR_COUNT];
@@ -376,7 +380,14 @@ static void parse_feedback(const rs00_frame_t *frame)
         return;
     }
     s_motors[index].mode_state = (uint8_t)feedback.state;
-    s_motors[index].position_rad = feedback.position_rad;
+    if (s_position_unwrap_valid[index]) {
+        const float delta = remainderf(
+            feedback.position_rad - s_motors[index].position_rad,
+            RS00_FEEDBACK_POSITION_PERIOD_RAD);
+        s_motors[index].position_rad += delta;
+    } else {
+        s_motors[index].position_rad = feedback.position_rad;
+    }
     s_motors[index].velocity_rad_s = feedback.velocity_rad_s;
     s_motors[index].torque_nm = feedback.torque_nm;
     s_motors[index].temperature_c = feedback.temperature_c;
@@ -495,6 +506,7 @@ void SteeringController_Init(FDCAN_HandleTypeDef *hfdcan)
     memset(s_motors, 0, sizeof(s_motors));
     memset(&g_steering_can_trace, 0, sizeof(g_steering_can_trace));
     memset((void *)s_feedback_sequence, 0, sizeof(s_feedback_sequence));
+    memset(s_position_unwrap_valid, 0, sizeof(s_position_unwrap_valid));
     memset((void *)s_uid_sequence, 0, sizeof(s_uid_sequence));
     memset((void *)s_parameter_sequence, 0, sizeof(s_parameter_sequence));
     memset(s_feedback_stale_pending, 0,
@@ -584,6 +596,10 @@ static void task_read_position(void)
     } else if (wait_for_parameter(STEERING_STATE_READ_POSITION_SEND, raw)) {
         memcpy(motor->startup_position_raw, raw, 4U);
         motor->startup_position_rad = raw_to_float(raw);
+        /* mechPos supplies the continuous branch.  Do not let the next
+         * cyclic type-2 status frame replace it with the opposite endpoint. */
+        motor->position_rad = motor->startup_position_rad;
+        s_position_unwrap_valid[s_motor_index] = true;
         motor->target_position_rad = motor->startup_position_rad;
         advance_motor_or_state(STEERING_STATE_READ_POSITION_SEND,
                                STEERING_STATE_VALIDATE_POSITION);
@@ -607,10 +623,12 @@ static void task_validate_positions(void)
                             : STEERING_ERROR_INVALID_POSITION);
             return;
         }
-        if (position < s_min_position[index]) {
-            s_motors[index].startup_position_rad = s_min_position[index];
-        } else if (position > s_max_position[index]) {
-            s_motors[index].startup_position_rad = s_max_position[index];
+        if (STEERING_ENABLE_MECHANICAL_LIMIT_CHECK != 0) {
+            if (position < s_min_position[index]) {
+                s_motors[index].startup_position_rad = s_min_position[index];
+            } else if (position > s_max_position[index]) {
+                s_motors[index].startup_position_rad = s_max_position[index];
+            }
         }
         s_motors[index].target_position_rad =
             s_motors[index].startup_position_rad;
@@ -1034,6 +1052,7 @@ bool SteeringController_ClearFaultAndRestart(void)
     memset(s_feedback_stale_since, 0, sizeof(s_feedback_stale_since));
     memset(s_feedback_stale_last_rx, 0,
            sizeof(s_feedback_stale_last_rx));
+    memset(s_position_unwrap_valid, 0, sizeof(s_position_unwrap_valid));
     s_motor_index = 0U;
     set_state(STEERING_STATE_BOOT_WAIT);
     return true;
@@ -1103,18 +1122,56 @@ static bool calculate_target(SteeringMotorIndex index,
     if (!isfinite(chassis_angle_rad) || !isfinite(command)) {
         return false;
     }
+    /* Select the full-turn representation nearest the measured position.
+     * Referencing the previous target is unsafe when a new joystick command
+     * arrives while steering is still moving: target and rotor position may
+     * then be far apart and can select the long way around. */
+    if (STEERING_ENABLE_MECHANICAL_LIMIT_CHECK == 0) {
+        const float two_pi = 6.28318530717958647692f;
+        const float reference = s_motors[index].position_rad;
+        command += roundf((reference - command) / two_pi) * two_pi;
+    }
     if ((STEERING_ENABLE_MECHANICAL_LIMIT_CHECK != 0)
         && ((command < (s_min_position[index] - STEERING_LIMIT_EPSILON_RAD))
             || (command > (s_max_position[index]
                            + STEERING_LIMIT_EPSILON_RAD)))) {
         return false;
     }
-    if (command < s_min_position[index]) {
-        command = s_min_position[index];
-    } else if (command > s_max_position[index]) {
-        command = s_max_position[index];
+    if (STEERING_ENABLE_MECHANICAL_LIMIT_CHECK != 0) {
+        if (command < s_min_position[index]) {
+            command = s_min_position[index];
+        } else if (command > s_max_position[index]) {
+            command = s_max_position[index];
+        }
     }
     *motor_angle_rad = command;
+    return true;
+}
+
+bool SteeringController_EvaluateAngleTravel(float chassis_angle_rad,
+                                            float *max_travel_rad)
+{
+    const float two_pi = 6.28318530717958647692f;
+    float maximum = 0.0f;
+    size_t index;
+
+    if (!SteeringController_IsReady() || !isfinite(chassis_angle_rad)
+        || (max_travel_rad == NULL)) {
+        return false;
+    }
+    for (index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
+        const float command =
+            (s_direction[index] * chassis_angle_rad) + s_zero_offset[index];
+        const float travel = fabsf(remainderf(
+            command - s_motors[index].position_rad, two_pi));
+        if (!isfinite(command) || !isfinite(travel)) {
+            return false;
+        }
+        if (travel > maximum) {
+            maximum = travel;
+        }
+    }
+    *max_travel_rad = maximum;
     return true;
 }
 

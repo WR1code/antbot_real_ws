@@ -37,7 +37,7 @@ def planar_command(left_x, left_y, lt, rt, linear_speed, angular_speed):
     """Return ROS body-frame vx, vy and wz for the measured Xbox mapping."""
     return (
         -left_y * linear_speed,
-        -left_x * linear_speed,
+        left_x * linear_speed,
         (lt - rt) * angular_speed,
     )
 

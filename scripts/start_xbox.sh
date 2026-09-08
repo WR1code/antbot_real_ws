@@ -6,10 +6,7 @@ script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${script_dir}/setup_env.sh"
 
-if [[ ! -e /dev/input/js0 ]]; then
-  echo "错误：没有找到 /dev/input/js0。" >&2
-  exit 1
-fi
+joy_device="$("${script_dir}/find_gamepad.sh")"
 
 if [[ "${ANTBOT_REAL_MOTION_CONFIRMED:-}" != "YES" ]]; then
   if [[ ! -t 0 ]]; then
@@ -41,4 +38,4 @@ if [[ "$ready" != true ]]; then
 fi
 
 exec ros2 launch antbot_real_bringup real_base.launch.py \
-  start_xbox:=true start_joy:=true "$@"
+  start_xbox:=true start_joy:=true joy_device:="${joy_device}" "$@"

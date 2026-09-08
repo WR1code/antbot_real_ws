@@ -49,10 +49,10 @@ def test_left_stick_maps_to_holonomic_body_motion():
     ) == pytest.approx((0.3, 0.0, 0.0))
     assert planar_command(
         1.0, 0.0, 0.0, 0.0, 0.3, 0.5
-    ) == pytest.approx((0.0, -0.3, 0.0))
+    ) == pytest.approx((0.0, 0.3, 0.0))
     assert planar_command(
         -1.0, 0.0, 0.0, 0.0, 0.3, 0.5
-    ) == pytest.approx((0.0, 0.3, 0.0))
+    ) == pytest.approx((0.0, -0.3, 0.0))
 
 
 def test_triggers_rotate_in_requested_directions():

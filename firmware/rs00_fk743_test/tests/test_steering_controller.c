@@ -13,6 +13,8 @@ static uint32_t s_stop_count;
 static bool s_enabled[STEERING_MOTOR_COUNT];
 static bool s_suppress_feedback[STEERING_MOTOR_COUNT];
 static float s_positions[STEERING_MOTOR_COUNT] = {0.10f, 0.20f, 0.30f, 0.40f};
+static const float s_zero_offsets[STEERING_MOTOR_COUNT] =
+    STEERING_ZERO_OFFSETS_RAD;
 static float s_loc_refs[STEERING_MOTOR_COUNT];
 static uint8_t s_run_modes[STEERING_MOTOR_COUNT];
 static uint32_t s_limit_speed_writes;
@@ -20,6 +22,8 @@ static uint32_t s_limit_current_writes;
 static uint32_t s_pp_parameter_writes;
 static float s_expected_limit_speed = STEERING_CSP_LIMIT_SPEED_RAD_S;
 static float s_expected_limit_current = STEERING_CSP_LIMIT_CURRENT_A;
+static const uint8_t s_expected_uids[STEERING_MOTOR_COUNT][8] =
+    STEERING_EXPECTED_UIDS;
 static uint32_t make_reply_id(uint8_t type, uint8_t status,
                               uint8_t motor_id, uint8_t destination)
 {
@@ -37,10 +41,28 @@ static void write_float_le(uint8_t output[4], float value)
     output[3] = (uint8_t)(bits >> 24);
 }
 
+static uint16_t encode_feedback_position(float continuous_position_rad)
+{
+    const float period = RS00_FEEDBACK_POSITION_PERIOD_RAD;
+    float wrapped = remainderf(continuous_position_rad, period);
+    float scaled;
+
+    if (wrapped < RS00_FEEDBACK_POSITION_MIN_RAD) {
+        wrapped += period;
+    } else if (wrapped > RS00_FEEDBACK_POSITION_MAX_RAD) {
+        wrapped -= period;
+    }
+    scaled = (wrapped - RS00_FEEDBACK_POSITION_MIN_RAD) * 65535.0f / period;
+    return (uint16_t)lroundf(scaled);
+}
+
 static void send_feedback(uint8_t motor_id)
 {
+    const uint16_t encoded_position =
+        encode_feedback_position(s_positions[motor_id - 1U]);
     uint8_t data[8] = {
-        0x7F, 0xFF, 0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0xFA
+        (uint8_t)(encoded_position >> 8U), (uint8_t)encoded_position,
+        0x7F, 0xFF, 0x7F, 0xFF, 0x00, 0xFA
     };
     const uint8_t state = s_enabled[motor_id - 1U] ? 2U : 0U;
     if (s_suppress_feedback[motor_id - 1U]) {
@@ -66,7 +88,11 @@ static void respond_to_tx(const FDCAN_TxHeaderTypeDef *header,
     } else if (type == RS00_TYPE_GET_DEVICE_ID) {
         size_t index;
         for (index = 0U; index < 8U; ++index) {
+#if STEERING_ENFORCE_UID_CHECK
+            response[index] = s_expected_uids[motor_id - 1U][index];
+#else
             response[index] = (uint8_t)(motor_id * 0x10U + index + 1U);
+#endif
         }
         SteeringController_OnCanFrame(
             make_reply_id(RS00_TYPE_GET_DEVICE_ID, 0U,
@@ -252,6 +278,16 @@ int main(void)
 {
     FDCAN_HandleTypeDef hfdcan = {0};
     SteeringMotor snapshot;
+    unsigned index;
+
+    for (index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
+        s_positions[index] += s_zero_offsets[index];
+    }
+    /* Exercise a real installation branch close to the cyclic status edge. */
+    s_positions[STEERING_MOTOR_FR] = -12.40f;
+    /* Model a continuous encoder returning the same RR orientation one full
+     * turn above its normalized zero offset. */
+    s_positions[STEERING_MOTOR_RR] += 6.28318530717958647692f;
 
     SteeringController_Init(&hfdcan);
     assert(SteeringController_GetState() == STEERING_STATE_BOOT_WAIT);
@@ -264,7 +300,7 @@ int main(void)
     assert(s_limit_speed_writes == STEERING_MOTOR_COUNT);
     assert(s_limit_current_writes == STEERING_MOTOR_COUNT);
     assert(s_pp_parameter_writes == 0U);
-    for (unsigned index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
+    for (index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
         assert(s_run_modes[index] == RS00_RUN_CSP);
         assert(fabsf(s_loc_refs[index] - s_positions[index]) < 0.001f);
     }
@@ -273,12 +309,32 @@ int main(void)
     assert(SteeringController_GetMotorSnapshot(STEERING_MOTOR_RR, &snapshot));
     assert(snapshot.uid_received);
     assert(snapshot.initialized);
-    assert(fabsf(snapshot.startup_position_rad - 0.4f) < 0.001f);
+    assert(fabsf(snapshot.startup_position_rad
+                 - s_positions[STEERING_MOTOR_RR]) < 0.001f);
 
     assert(SteeringController_RequestEnable());
     run_until(STEERING_STATE_READY);
     assert(SteeringController_IsReady());
     assert(s_enable_count == STEERING_MOTOR_COUNT);
+
+    /* Cross the type-2 feedback boundary.  Its encoded value jumps near the
+     * opposite endpoint, but continuous position and the next +90-degree
+     * command must remain on the original turn-count branch. */
+    assert(SteeringController_SetMotorAngle(
+        STEERING_MOTOR_FR, -0.78539816339744830962f));
+    assert(SteeringController_GetMotorSnapshot(STEERING_MOTOR_FR, &snapshot));
+    s_positions[STEERING_MOTOR_FR] = snapshot.target_position_rad;
+    send_feedback(STEERING_MOTOR_ID_FR);
+    assert(SteeringController_GetMotorSnapshot(STEERING_MOTOR_FR, &snapshot));
+    assert(snapshot.position_rad < RS00_FEEDBACK_POSITION_MIN_RAD);
+    assert(fabsf(snapshot.position_rad - s_positions[STEERING_MOTOR_FR])
+           < 0.002f);
+    assert(SteeringController_SetMotorAngle(
+        STEERING_MOTOR_FR, 0.78539816339744830962f));
+    assert(SteeringController_GetMotorSnapshot(STEERING_MOTOR_FR, &snapshot));
+    assert(snapshot.target_position_rad < -10.0f);
+    assert(fabsf(snapshot.target_position_rad - snapshot.position_rad)
+           <= (3.14159265358979323846f / 2.0f) + 0.002f);
 
     /* A reply during stale confirmation must cancel the pending fault. */
     s_suppress_feedback[STEERING_MOTOR_RL] = true;
@@ -292,17 +348,34 @@ int main(void)
     assert(SteeringController_IsReady());
 
     assert(SteeringController_SetAllAngles(0.11f, 0.21f, 0.31f, 0.41f));
+    assert(SteeringController_GetMotorSnapshot(STEERING_MOTOR_RR, &snapshot));
+    assert(fabsf(remainderf(
+                     snapshot.target_position_rad
+                         - (s_zero_offsets[STEERING_MOTOR_RR] + 0.41f),
+                     6.28318530717958647692f)) < 0.001f);
+    assert(fabsf(snapshot.target_position_rad - snapshot.position_rad)
+           <= 3.14159265358979323846f);
+#if STEERING_CALIBRATION_CONFIRMED
+    assert(SteeringController_SetAllAngles(-0.01f, 0.2f, 0.3f, 0.4f));
+    assert(SteeringController_IsReady());
+#else
     assert(!SteeringController_SetAllAngles(-0.01f, 0.2f, 0.3f, 0.4f));
     assert(SteeringController_GetState() == STEERING_STATE_FAULT);
-
     assert(SteeringController_ClearFaultAndRestart());
     s_tick += STEERING_MOTOR_BOOT_DELAY_MS;
     run_until(STEERING_STATE_ARMED);
     assert(SteeringController_RequestEnable());
     run_until(STEERING_STATE_READY);
+#endif
+#if STEERING_ENABLE_MECHANICAL_LIMIT_CHECK
     assert(!SteeringController_SetAllAngles(
         STEERING_MECH_MAX_RAD + 0.01f, 0.2f, 0.3f, 0.4f));
     assert(SteeringController_GetState() == STEERING_STATE_FAULT);
+#else
+    assert(SteeringController_SetAllAngles(
+        STEERING_MECH_MAX_RAD + 0.01f, 0.2f, 0.3f, 0.4f));
+    assert(SteeringController_IsReady());
+#endif
 
     s_expected_limit_speed = 0.75f;
     s_expected_limit_current = 1.5f;
@@ -315,13 +388,29 @@ int main(void)
     s_positions[0] = -0.01f;
     SteeringController_Init(&hfdcan);
     s_tick += STEERING_MOTOR_BOOT_DELAY_MS;
+#if STEERING_ENABLE_MECHANICAL_LIMIT_CHECK
     run_until(STEERING_STATE_FAULT);
     assert(g_steering_debug_error == STEERING_ERROR_MECHANICAL_RANGE);
+#else
+    run_until(STEERING_STATE_ARMED);
+    assert(fabsf(SteeringController_GetMotor(STEERING_MOTOR_FL)
+                     ->startup_position_rad
+                 - s_positions[0])
+           < 0.001f);
+#endif
     s_positions[0] = STEERING_MECH_MAX_RAD + 0.01f;
     SteeringController_Init(&hfdcan);
     s_tick += STEERING_MOTOR_BOOT_DELAY_MS;
+#if STEERING_ENABLE_MECHANICAL_LIMIT_CHECK
     run_until(STEERING_STATE_FAULT);
     assert(g_steering_debug_error == STEERING_ERROR_MECHANICAL_RANGE);
+#else
+    run_until(STEERING_STATE_ARMED);
+    assert(fabsf(SteeringController_GetMotor(STEERING_MOTOR_FL)
+                     ->startup_position_rad
+                 - s_positions[0])
+           < 0.001f);
+#endif
     puts("Steering controller state-machine test passed");
     return 0;
 }

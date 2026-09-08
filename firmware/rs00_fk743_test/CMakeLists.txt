@@ -82,7 +82,11 @@ target_compile_options(test_chassis_translation_controller PRIVATE
     -Wall -Wextra -Wpedantic -Werror
 )
 target_compile_definitions(test_chassis_translation_controller PRIVATE
-    DRIVE_SAFETY_FEEDBACK_TIMEOUT_MS=100000U
+    DRIVE_SPEED_FEEDBACK_TIMEOUT_MS=100000U
+    DRIVE_CURRENT_FEEDBACK_TIMEOUT_MS=100000U
+    DRIVE_FAULT_FEEDBACK_TIMEOUT_MS=100000U
+    DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS=100000U
+    DRIVE_VOLTAGE_FEEDBACK_TIMEOUT_MS=100000U
 )
 target_include_directories(test_steering_controller PRIVATE
     tests/mocks

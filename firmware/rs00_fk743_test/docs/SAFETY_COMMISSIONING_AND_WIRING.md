@@ -74,7 +74,8 @@ USB-TTL GND -> STM32 GND
 
 - 心跳超时：1000 ms；STM32 正常情况下每 100 ms 以内发送一次 `00`。
 - 驱动器自带终端：只有它确实位于线缆物理端点时才打开，否则关闭。
-- 异步反馈周期：可以保留，但不再是安全监测前提；固件每 5 ms 轮询一项，约
+- 异步反馈周期：全部设为 `-1 ms`（关闭），避免四台驱动器高频回传与同 ID
+  控制帧争用；固件每 5 ms 轮询一项，约
   100 ms 能刷新四台的完整安全反馈。
 - 电机参数：24 V、150 W、10 极对、编码器配置值 4096、直驱 1:1；必须与实物
   铭牌和上位机读回一致。
@@ -152,7 +153,7 @@ python3 host/chassis_dashboard.py --port /dev/ttyUSB0
 `firmware/App/Inc/steering_config.h` 的 `STEERING_EXPECTED_UIDS`。不要仅凭 CAN ID
 猜 UID，也不要互换轮位。
 
-### 7.2 小步确认方向、零位和端点
+### 7.2 小步确认方向和零位
 
 保持架空并准备切断动力：
 
@@ -174,9 +175,9 @@ python3 host/control_tool.py steering-set-each 31.0 40.0 50.0 60.0
 对每个轮记录：
 
 - 命令增加时，底盘定义角度是增加还是减少，据此得到 `direction_sign`；
-- 轮子正向对应底盘左方的机械零位，据此求 `zero_offset`；
-- 缓慢靠近但不要撞到硬限位，记录两端；每端退回足够机械余量后作为软件最小/
-  最大位置；
+- 轮子朝车体前方的位置定义为逻辑 0°，据此求 `zero_offset`；
+- 本车转向机构已解除 360°机械限制，因此保持
+  `STEERING_ENABLE_MECHANICAL_LIMIT_CHECK=0`，不再寻找不存在的机械端点；
 - 全程监控电流、温度和机构干涉，任何异常立即实体断动力。
 
 把结果按 FL/FR/RL/RR 顺序填入：
@@ -184,11 +185,10 @@ python3 host/control_tool.py steering-set-each 31.0 40.0 50.0 60.0
 ```c
 #define STEERING_DIRECTION_SIGNS      { /* 四个 +1.0f 或 -1.0f */ }
 #define STEERING_ZERO_OFFSETS_RAD      { /* 四个弧度 */ }
-#define STEERING_MIN_POSITIONS_RAD     { /* 四个安全最小值 */ }
-#define STEERING_MAX_POSITIONS_RAD     { /* 四个安全最大值 */ }
+#define STEERING_ENABLE_MECHANICAL_LIMIT_CHECK 0
 ```
 
-完成后先重新构建、架空复测四个角度和端点。确认无误才同时改为：
+完成后先重新构建、架空复测四轮正方向和零位。确认无误才同时改为：
 
 ```c
 #define STEERING_ENFORCE_UID_CHECK      1
@@ -205,8 +205,8 @@ python3 host/control_tool.py steering-set-each 31.0 40.0 50.0 60.0
 python3 host/control_tool.py drive-feedback all
 ```
 
-四台都应满足：故障码 `0`、软件保护 `0`、反馈年龄小于 400 ms、电压接近实际
-24 V、静止转速接近 0、电流和温度合理。安全必需反馈的有效位为故障 bit0、速度
+四台都应满足：故障码 `0`、软件保护 `0`、总反馈年龄通常小于 100 ms、电压接近
+实际 48 V、静止转速接近 0、电流和温度合理。安全必需反馈的有效位为故障 bit0、速度
 bit1、电压 bit4、电流 bit5、温度 bit7，合计至少 `0xB3`；额外收到位置 bit8 是
 正常的。
 
@@ -235,10 +235,14 @@ python3 host/control_tool.py drive-stop
 | 主机运动命令超时 | 300 ms | 行走目标降为零 |
 | RS00 反馈超时 | 500 ms，再确认 100 ms | 全局故障、停止转向和行走 |
 | RS00 温度 | 85 °C | 全局故障 |
-| MINI 完整反馈年龄 | 400 ms | 建立过反馈后锁存故障 |
+| MINI 速度/电流反馈 | 250 ms | 建立过反馈后锁存故障 |
+| MINI 故障反馈 | 500 ms | 建立过反馈后锁存故障 |
+| MINI 温度反馈 | 750 ms | 建立过反馈后锁存故障 |
+| MINI 电压反馈 | 2 s | 建立过反馈后锁存故障 |
+| MINI 连续发送失败 | 500 ms | 锁存故障、撤流；仍早于驱动器 1000 ms 心跳超时 |
 | MINI 电流绝对值 | 8 A | 锁存故障、撤流 |
 | MINI 温度 | 85 °C | 锁存故障、撤流 |
-| MINI 电压 | 18～30 V | 锁存故障、撤流 |
+| MINI 电压 | 36～60 V（48 V 标称母线） | 锁存故障、撤流 |
 | MINI 反馈速度 | 1500 erpm | 锁存故障、撤流 |
 | 停轮确认 | 四轮 ≤30 erpm 持续 100 ms | 才允许转向 |
 | MCU IWDG | 标称约 2 s | 主循环卡死自动 MCU 复位 |
@@ -251,8 +255,8 @@ python3 host/control_tool.py drive-stop
 
 全部故障测试仍要架空，并准备实体断动力：
 
-1. 建立正常 MINI 完整反馈后拔掉 MINI CAN：不超过约 400 ms 应出现反馈过期/
-   缺失保护，四轮目标归零并撤流，事件日志出现 `MINI安全故障`。
+1. 建立正常 MINI 完整反馈后拔掉 MINI CAN：CAN bus-off 应立即锁存；若物理层未
+   进入 bus-off，速度/电流反馈最迟约 250 ms 触发过期并撤流。
 2. 正常低速运行时停止 Linux 发布命令：约 300 ms 后应停车。
 3. 拔掉一台 RS00 CAN 支路：反馈超时后整车应进入故障并停止。
 4. 发送 `emergency-stop`：应立即停止转向并撤去 MINI 电流；恢复必须显式执行
@@ -324,7 +328,7 @@ Backup SRAM 要在板上 `VBT/VBAT` 接约 3 V 后备电源才可跨彻底掉电
 - [ ] 四台 RS00 UID 已记录且强制校验，方向、零偏、软限位已实测。
 - [ ] `STEERING_CALIBRATION_CONFIRMED=1`，面板显示“整车运动锁：已解锁”。
 - [ ] `DRIVE_ALLOW_RAW_WHEEL_COMMANDS=0`，所有自动使能仍保持关闭。
-- [ ] MINI 四台故障码为 0、安全标志为 0、反馈年龄小于 400 ms。
+- [ ] MINI 四台故障码为 0、安全标志为 0、总反馈年龄通常小于 100 ms。
 - [ ] 主机掉线、两条 CAN 掉线、急停、看门狗和远程复位测试均通过。
 - [ ] 实体急停无需 STM32 或 Linux 正常运行即可断动力。
 - [ ] 温升、满载、电源跌落和制动母线电压已经在最终机械系统上测试。

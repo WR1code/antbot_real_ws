@@ -19,13 +19,14 @@
 
 /* Safe first-power-up policy: initialization ends in ARMED, never ENABLED. */
 #define STEERING_AUTO_ENABLE                   0
-#define STEERING_ENFORCE_UID_CHECK             0
-#define STEERING_ENABLE_MECHANICAL_LIMIT_CHECK 1
+#define STEERING_ENFORCE_UID_CHECK             1
+/* The steering assemblies are mechanically continuous (no hard end stops). */
+#define STEERING_ENABLE_MECHANICAL_LIMIT_CHECK 0
 
-/* Whole-chassis motion remains locked until UID, installation direction,
- * zero offsets and four mechanical ranges have been measured. Direct steering
- * calibration remains available but is limited to 0.01 rad per command. */
-#define STEERING_CALIBRATION_CONFIRMED          0
+/* Whole-chassis motion remains locked until UID, installation direction and
+ * zero offsets have been verified. Direct steering calibration remains
+ * available but is limited to 0.01 rad per command. */
+#define STEERING_CALIBRATION_CONFIRMED          1
 #define STEERING_COMMISSIONING_MAX_STEP_RAD     0.01f
 #define STEERING_MAX_FEEDBACK_TEMPERATURE_C     85.0f
 
@@ -49,12 +50,12 @@
 
 /*
  * Measured chassis mounting convention:
- *   steering 0 deg  + positive traction = chassis left  (+Y / 90 deg)
- *   steering 90 deg + positive traction = chassis front (+X / 0 deg)
- * Therefore positive steering motion rotates the positive traction direction
- * clockwise in chassis coordinates.
+ *   steering 0 deg  + positive traction = chassis front (+X / 0 deg)
+ * Positive steering motion rotates the positive traction direction clockwise
+ * in chassis coordinates; the 180-degree equivalent solution may reverse the
+ * traction sign to minimize steering travel.
  */
-#define CHASSIS_DRIVE_DIRECTION_AT_STEERING_ZERO_DEG 90.0f
+#define CHASSIS_DRIVE_DIRECTION_AT_STEERING_ZERO_DEG  0.0f
 #define CHASSIS_DIRECTION_PER_STEERING_DEG           (-1.0f)
 
 #define STEERING_CSP_LIMIT_SPEED_RAD_S           1.0f
@@ -65,14 +66,13 @@
 #define STEERING_ALIGNMENT_STABLE_MS             200U
 #define STEERING_ALIGNMENT_TIMEOUT_MS            5000U
 
-/*
- * Installation values are placeholders. Determine direction and zero offset
- * with every wheel lifted; CAN ID does not imply a mechanical direction.
- */
+/* Direction signs remain commissioning values. Zero offsets were captured
+ * with all four wheels physically aligned to chassis forward (+X). */
 #define STEERING_DIRECTION_SIGNS                {1.0f, 1.0f, 1.0f, 1.0f}
-#define STEERING_ZERO_OFFSETS_RAD                {0.0f, 0.0f, 0.0f, 0.0f}
+#define STEERING_ZERO_OFFSETS_RAD                \
+    {3.294f, 0.709f, 2.905f, 2.880f}
 
-/* TODO: replace each endpoint with its measured safe mechanical range. */
+/* Only used when STEERING_ENABLE_MECHANICAL_LIMIT_CHECK is enabled. */
 #define STEERING_MIN_POSITIONS_RAD               \
     {STEERING_MECH_MIN_RAD, STEERING_MECH_MIN_RAD, \
      STEERING_MECH_MIN_RAD, STEERING_MECH_MIN_RAD}
@@ -80,12 +80,12 @@
     {STEERING_MECH_MAX_RAD, STEERING_MECH_MAX_RAD, \
      STEERING_MECH_MAX_RAD, STEERING_MECH_MAX_RAD}
 
-/* All-zero entries mean "learn and display only" when UID enforcement is off. */
+/* IDs read from the installed FL, FR, RL and RR motors. */
 #define STEERING_EXPECTED_UIDS                   \
-    {{0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U},        \
-     {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U},        \
-     {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U},        \
-     {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}}
+    {{0x33U, 0x99U, 0x30U, 0x21U, 0x18U, 0x31U, 0xB6U, 0x03U}, \
+     {0x24U, 0x6FU, 0x30U, 0x21U, 0x18U, 0x31U, 0xB6U, 0x05U}, \
+     {0x62U, 0x7CU, 0x30U, 0x02U, 0x0CU, 0x34U, 0x37U, 0x04U}, \
+     {0x6FU, 0x9AU, 0x30U, 0x21U, 0x18U, 0x31U, 0xB6U, 0x03U}}
 
 #if STEERING_CALIBRATION_CONFIRMED && !STEERING_ENFORCE_UID_CHECK
 #error "Confirmed steering calibration requires UID enforcement"

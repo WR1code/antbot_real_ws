@@ -8,7 +8,8 @@ workspace="$(cd -- "${script_dir}/.." && pwd)"
 source "${script_dir}/setup_env.sh"
 
 cd "$workspace"
-colcon test --packages-select antbot_h743_bridge antbot_real_bringup \
+colcon test --packages-select antbot_h743_bridge antbot_teleop \
+  antbot_real_bringup \
   --event-handlers console_direct+
 colcon test-result --verbose
 

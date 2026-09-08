@@ -47,21 +47,40 @@
 #define DRIVE_TEMPERATURE_FEEDBACK_PERIOD_MS 100U
 #define DRIVE_SPEED_REFRESH_PERIOD_MS    50U
 #define DRIVE_TX_INTERVAL_MS             2U
-#define DRIVE_MAX_CONSECUTIVE_TX_ERRORS  3U
+/* A full hardware TX FIFO is retried every 2 ms. The installed four-drive
+ * bus can remain arbitration-busy for more than 100 ms; 500 ms still trips
+ * before the drives' independent 1000 ms heartbeat timeout. Bus-Off is
+ * handled separately and is not delayed by this value. */
+#define DRIVE_TX_FAILURE_TIMEOUT_MS       500U
 #define DRIVE_STOP_SETTLE_MARGIN_MS      100U
 
 /* Active safety feedback. One query is sent every 5 ms; a complete set for
  * four drives is refreshed in about 100 ms even when async reporting is off. */
 #define DRIVE_SAFETY_QUERY_INTERVAL_MS       5U
-#ifndef DRIVE_SAFETY_FEEDBACK_TIMEOUT_MS
-#define DRIVE_SAFETY_FEEDBACK_TIMEOUT_MS   400U
+#ifndef DRIVE_SPEED_FEEDBACK_TIMEOUT_MS
+#define DRIVE_SPEED_FEEDBACK_TIMEOUT_MS    250U
+#endif
+#ifndef DRIVE_CURRENT_FEEDBACK_TIMEOUT_MS
+#define DRIVE_CURRENT_FEEDBACK_TIMEOUT_MS  250U
+#endif
+#ifndef DRIVE_FAULT_FEEDBACK_TIMEOUT_MS
+#define DRIVE_FAULT_FEEDBACK_TIMEOUT_MS    500U
+#endif
+#ifndef DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS
+#define DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS 750U
+#endif
+/* Voltage is actively polled rather than streamed by the installed MINI
+ * firmware, so tolerate several missed query/reply cycles. */
+#ifndef DRIVE_VOLTAGE_FEEDBACK_TIMEOUT_MS
+#define DRIVE_VOLTAGE_FEEDBACK_TIMEOUT_MS  2000U
 #endif
 #define DRIVE_STOP_SPEED_THRESHOLD_ERPM     30
 #define DRIVE_STOP_FEEDBACK_STABLE_MS      100U
 #define DRIVE_MAX_FEEDBACK_CURRENT_10MA    800
 #define DRIVE_MAX_FEEDBACK_TEMPERATURE_C    85
-#define DRIVE_MIN_FEEDBACK_VOLTAGE_V         18
-#define DRIVE_MAX_FEEDBACK_VOLTAGE_V         30
+/* Installed traction bus is nominally 48 V (verified from MINI feedback). */
+#define DRIVE_MIN_FEEDBACK_VOLTAGE_V         36
+#define DRIVE_MAX_FEEDBACK_VOLTAGE_V         60
 #define DRIVE_MAX_FEEDBACK_SPEED_ERPM      1500
 #define DRIVE_SAFE_MAX_ACCELERATION_ERPM_S 1000
 #define DRIVE_SAFE_MAX_DECELERATION_ERPM_S 1500

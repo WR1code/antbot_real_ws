@@ -232,7 +232,7 @@ Ctrl+C 时工具会发送零速度停车帧，并在 `finally` 中关闭串口�
 3. 先不给执行器动力，连接 UART、ST-Link、只监听 USB-CAN，检查 UART/ACK。
 4. 上电等待转向初始化。启动阶段预期 `REJECTED_NOT_HOMED`；到 ARMED 后预期
    `REJECTED_DISABLED`，不得静默运动。
-5. 核对标定和机械范围后，在调试器表达式窗口显式执行
+5. 核对 UID、方向、零偏和连续旋转线束余量后，在调试器表达式窗口显式执行
    `SteeringController_RequestEnable()`；确认返回 `true`。
 6. 观察 `steering_ready=1`，再运行上述 `0.03 m/s`、5 Hz、2 秒命令。
 7. 预期先 `STEERING`，对准后 `DRIVE`；停止有效帧后 300 ms 内变为

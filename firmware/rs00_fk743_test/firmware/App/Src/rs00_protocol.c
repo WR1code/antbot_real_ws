@@ -222,7 +222,9 @@ bool rs00_decode_feedback(const rs00_frame_t *frame, rs00_feedback_t *feedback)
     feedback->motor_id = (uint8_t)(id >> 8);
     feedback->master_id = (uint8_t)id;
     feedback->position_rad =
-        u16_to_physical(read_be_u16(&frame->data[0]), -12.57f, 12.57f);
+        u16_to_physical(read_be_u16(&frame->data[0]),
+                        RS00_FEEDBACK_POSITION_MIN_RAD,
+                        RS00_FEEDBACK_POSITION_MAX_RAD);
     feedback->velocity_rad_s =
         u16_to_physical(read_be_u16(&frame->data[2]), -33.0f, 33.0f);
     feedback->torque_nm =

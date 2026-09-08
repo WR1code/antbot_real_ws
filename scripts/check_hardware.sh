@@ -74,9 +74,12 @@ else
   warn "当前用户不属于 dialout 组"
 fi
 
-[[ -e /dev/input/js0 ]] \
-  && pass "Xbox/手柄设备：/dev/input/js0" \
-  || warn "没有 /dev/input/js0；不影响只启动底盘桥"
+if joy_device="$("${script_dir}/find_gamepad.sh" 2>/dev/null)"; then
+  joy_name="$(tr -d '\n' <"/sys/class/input/${joy_device##*/}/device/name")"
+  pass "Xbox/手柄设备：${joy_device}（${joy_name}）"
+else
+  warn "没有识别到真实 Xbox/游戏手柄；触摸屏 joystick 已忽略"
+fi
 
 video_count="$(find /dev -maxdepth 1 -name 'video*' 2>/dev/null | wc -l)"
 ((video_count > 0)) \

@@ -62,6 +62,16 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 ./scripts/query_chassis.sh
 ```
 
+在连接 H743 之前，可先插入 Xbox/兼容手柄并单独验证遥控链路：
+
+```bash
+./scripts/start_xbox_dry_run.sh
+```
+
+该入口只启动手柄驱动和 `/joy -> /cmd_vel` 映射，不启动 H743 串口桥。默认将
+线速度限制为 `0.10 m/s`，并将 `angular.z` 强制为 0。脚本会忽略触摸屏等错误生成
+的 `/dev/input/js*` 设备；如果连接了多个手柄，请设置 `ANTBOT_JOY_DEVICE`。
+
 只启动机器人模型和H743串口桥，不启动手柄：
 
 ```bash

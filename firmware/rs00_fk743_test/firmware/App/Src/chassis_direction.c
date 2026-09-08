@@ -36,7 +36,11 @@ bool ChassisDirection_Solve(float direction_deg, float speed_mps,
         mechanical_direction += 360.0f;
     }
 
-    if (mechanical_direction <= 180.0f) {
+    /* Steering 0 deg with reverse traction is physically equivalent to
+     * steering 180 deg with forward traction. Keep exact reverse travel on
+     * the straight-ahead steering axis, avoiding an unnecessary 180-degree
+     * steering movement when switching between forward and reverse. */
+    if (mechanical_direction < 180.0f) {
         solution->steering_angle_deg = mechanical_direction;
         solution->drive_direction = 1;
         solution->signed_speed_mps = (magnitude == 0.0f) ? 0.0f : magnitude;

@@ -17,6 +17,7 @@ typedef struct {
 static uint32_t s_tick;
 static CapturedFrame s_frames[128];
 static unsigned s_frame_count;
+static bool s_can_send_ok = true;
 
 uint32_t HAL_GetTick(void)
 {
@@ -27,6 +28,9 @@ bool rs00_fdcan_send_standard(uint16_t standard_id, const uint8_t *data,
                               uint8_t length)
 {
     CapturedFrame *frame;
+    if (!s_can_send_ok) {
+        return false;
+    }
     assert(s_frame_count < (sizeof(s_frames) / sizeof(s_frames[0])));
     frame = &s_frames[s_frame_count++];
     frame->id = standard_id;
@@ -54,7 +58,13 @@ static void feed_safety_feedback(int32_t speed_erpm)
             (uint8_t)(raw_speed >> 16), (uint8_t)(raw_speed >> 8),
             (uint8_t)raw_speed
         };
-        const uint8_t voltage[] = {0x0FU, 0x04U, 0x00U, 0x18U};
+        const uint16_t nominal_voltage =
+            (DRIVE_MIN_FEEDBACK_VOLTAGE_V
+             + DRIVE_MAX_FEEDBACK_VOLTAGE_V) / 2U;
+        const uint8_t voltage[] = {
+            0x0FU, 0x04U, (uint8_t)(nominal_voltage >> 8U),
+            (uint8_t)nominal_voltage
+        };
         const uint8_t current[] = {0x0FU, 0x05U, 0x00U, 0x00U};
         const uint8_t temperature[] = {0x0FU, 0x07U, 0x00U, 0x19U};
         DriveController_OnCanFrame(id, fault, sizeof(fault));
@@ -65,13 +75,59 @@ static void feed_safety_feedback(int32_t speed_erpm)
     }
 }
 
+static void feed_safety_feedback_without_voltage(int32_t speed_erpm)
+{
+    unsigned wheel;
+    for (wheel = 0U; wheel < DRIVE_WHEEL_COUNT; ++wheel) {
+        const uint16_t id = (uint16_t)(DRIVE_CAN_ID_FL + wheel);
+        const uint32_t raw_speed = (uint32_t)speed_erpm;
+        const uint8_t fault[] = {0x0FU, 0x00U, 0x00U, 0x00U};
+        const uint8_t speed[] = {
+            0x0FU, 0x01U, (uint8_t)(raw_speed >> 24),
+            (uint8_t)(raw_speed >> 16), (uint8_t)(raw_speed >> 8),
+            (uint8_t)raw_speed
+        };
+        const uint8_t current[] = {0x0FU, 0x05U, 0x00U, 0x00U};
+        const uint8_t temperature[] = {0x0FU, 0x07U, 0x00U, 0x19U};
+        DriveController_OnCanFrame(id, fault, sizeof(fault));
+        DriveController_OnCanFrame(id, speed, sizeof(speed));
+        DriveController_OnCanFrame(id, current, sizeof(current));
+        DriveController_OnCanFrame(id, temperature, sizeof(temperature));
+    }
+}
+
+static void feed_voltage_only(void)
+{
+    unsigned wheel;
+    const uint16_t nominal_voltage =
+        (DRIVE_MIN_FEEDBACK_VOLTAGE_V
+         + DRIVE_MAX_FEEDBACK_VOLTAGE_V) / 2U;
+    const uint8_t voltage[] = {
+        0x0FU, 0x04U, (uint8_t)(nominal_voltage >> 8U),
+        (uint8_t)nominal_voltage
+    };
+    for (wheel = 0U; wheel < DRIVE_WHEEL_COUNT; ++wheel) {
+        DriveController_OnCanFrame(
+            (uint16_t)(DRIVE_CAN_ID_FL + wheel), voltage, sizeof(voltage));
+    }
+}
+
 int main(void)
 {
     unsigned index;
+    const unsigned startup_failed_sends =
+        (DRIVE_TX_FAILURE_TIMEOUT_MS / DRIVE_TX_INTERVAL_MS) + 2U;
     float target;
     DriveMotorFeedback feedback;
 
     assert(DriveController_Init());
+    s_can_send_ok = false;
+    for (index = 0U; index < startup_failed_sends; ++index) {
+        run_one_tx();
+    }
+    assert(DriveController_IsHealthy());
+    assert(!DriveController_IsConfigured());
+    s_can_send_ok = true;
     for (index = 0U; index < 16U; ++index) {
         run_one_tx();
     }
@@ -135,7 +191,30 @@ int main(void)
         assert(s_frames[index].data[4] == (positive ? 0xB6U : 0x4AU));
     }
 
-    DriveController_StopAll();
+    /* A repeated cmd_vel target must leave room for the due safety query. */
+    {
+        const unsigned start = s_frame_count;
+        assert(DriveController_SetAllWheelSpeeds(
+            0.1f, -0.1f, 0.1f, -0.1f));
+        run_one_tx();
+        assert(s_frame_count == start + 1U);
+        assert(s_frames[start].data[0] == 0x0FU);
+    }
+
+    /* STOPPING_DRIVE repeatedly requests stop. Only the first request may
+     * queue changed zero-speed targets; later calls must leave room for the
+     * due safety query. */
+    {
+        const unsigned start = s_frame_count;
+        for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
+            DriveController_StopAll();
+            run_one_tx();
+            assert(s_frames[start + index].data[0] == 0x02U);
+        }
+        DriveController_StopAll();
+        run_one_tx();
+        assert(s_frames[start + DRIVE_WHEEL_COUNT].data[0] == 0x0FU);
+    }
     assert(!DriveController_AllWheelsStopped());
     feed_safety_feedback(0);
     s_tick += DRIVE_STOP_FEEDBACK_STABLE_MS;
@@ -156,7 +235,8 @@ int main(void)
     assert(DriveController_GetTarget(DRIVE_WHEEL_FL, &target));
     assert(fabsf(target) < 0.0001f);
     assert(!DriveController_SetWheelSpeed(DRIVE_WHEEL_FL, 0.1f));
-    assert(DriveController_GetTxErrorCount() == 0U);
+    assert(DriveController_GetTxErrorCount()
+           == startup_failed_sends);
 
     assert(DriveController_ClearEmergencyStopAndRestart());
     for (index = 0U; index < 16U; ++index) {
@@ -186,6 +266,44 @@ int main(void)
             assert(s_frames[index].data[4] == 0x78U);
         }
     }
+
+    feed_safety_feedback(0);
+    s_tick += DRIVE_SPEED_FEEDBACK_TIMEOUT_MS + 1U;
+    feed_voltage_only();
+    assert((DriveController_GetSafetyFlags(DRIVE_WHEEL_FL)
+            & DRIVE_SAFETY_STALE) != 0U);
+    feed_safety_feedback(0);
+    assert(DriveController_IsSafetyFeedbackReady());
+
+    s_tick += DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS + 1U;
+    feed_safety_feedback_without_voltage(0);
+    assert(DriveController_IsSafetyFeedbackReady());
+    s_tick += DRIVE_VOLTAGE_FEEDBACK_TIMEOUT_MS
+              - DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS;
+    feed_safety_feedback_without_voltage(0);
+    assert((DriveController_GetSafetyFlags(DRIVE_WHEEL_FL)
+            & DRIVE_SAFETY_STALE) != 0U);
+    feed_safety_feedback(0);
+    assert(DriveController_IsSafetyFeedbackReady());
+
+    s_can_send_ok = false;
+    for (index = 0U; index < startup_failed_sends; ++index) {
+        run_one_tx();
+    }
+    assert(!DriveController_IsHealthy());
+    s_can_send_ok = true;
+    {
+        const unsigned frame_count_before_recovery = s_frame_count;
+        for (index = 0U;
+             (index < 16U) && (s_frame_count == frame_count_before_recovery);
+             ++index) {
+            run_one_tx();
+        }
+        assert(s_frame_count > frame_count_before_recovery);
+    }
+    feed_safety_feedback(0);
+    assert(DriveController_IsSafetyFeedbackReady());
+    assert(DriveController_IsHealthy());
 
     puts("OIDelec MINI drive controller tests passed");
     return 0;

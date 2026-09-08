@@ -22,6 +22,20 @@
 
 _Static_assert(DRIVE_HEARTBEAT_PERIOD_MS < DRIVE_HEARTBEAT_TIMEOUT_MS,
                "MINI heartbeat period must be below its configured timeout");
+_Static_assert(DRIVE_TX_INTERVAL_MS < DRIVE_TX_FAILURE_TIMEOUT_MS,
+               "MINI TX retry interval must be below its failure timeout");
+_Static_assert(DRIVE_SPEED_FEEDBACK_PERIOD_MS
+                   < DRIVE_SPEED_FEEDBACK_TIMEOUT_MS,
+               "MINI speed feedback timeout is too short");
+_Static_assert(DRIVE_CURRENT_FEEDBACK_PERIOD_MS
+                   < DRIVE_CURRENT_FEEDBACK_TIMEOUT_MS,
+               "MINI current feedback timeout is too short");
+_Static_assert(DRIVE_FAULT_FEEDBACK_PERIOD_MS
+                   < DRIVE_FAULT_FEEDBACK_TIMEOUT_MS,
+               "MINI fault feedback timeout is too short");
+_Static_assert(DRIVE_TEMPERATURE_FEEDBACK_PERIOD_MS
+                   < DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS,
+               "MINI temperature feedback timeout is too short");
 
 typedef enum {
     CONFIG_HEARTBEAT = 0,
@@ -49,7 +63,8 @@ static uint32_t s_next_tx_ms;
 static uint32_t s_stop_deadline_ms;
 static uint32_t s_stop_feedback_since_ms;
 static uint32_t s_tx_error_count;
-static uint32_t s_consecutive_tx_errors;
+static uint32_t s_tx_failure_since_ms;
+static bool s_tx_failure_active;
 static int32_t s_acceleration_erpm_s;
 static int32_t s_deceleration_erpm_s;
 static bool s_runtime_config_initialized;
@@ -116,6 +131,24 @@ static uint32_t feedback_type_tick(const DriveMotorFeedback *feedback,
     }
 }
 
+static uint32_t feedback_timeout_ms(MiniDriveFeedbackType type)
+{
+    switch (type) {
+    case MINI_DRIVE_FEEDBACK_FAULT:
+        return DRIVE_FAULT_FEEDBACK_TIMEOUT_MS;
+    case MINI_DRIVE_FEEDBACK_SPEED:
+        return DRIVE_SPEED_FEEDBACK_TIMEOUT_MS;
+    case MINI_DRIVE_FEEDBACK_VOLTAGE:
+        return DRIVE_VOLTAGE_FEEDBACK_TIMEOUT_MS;
+    case MINI_DRIVE_FEEDBACK_MOTOR_CURRENT:
+        return DRIVE_CURRENT_FEEDBACK_TIMEOUT_MS;
+    case MINI_DRIVE_FEEDBACK_TEMPERATURE:
+        return DRIVE_TEMPERATURE_FEEDBACK_TIMEOUT_MS;
+    default:
+        return DRIVE_SPEED_FEEDBACK_TIMEOUT_MS;
+    }
+}
+
 static uint32_t calculate_safety_flags(unsigned wheel, uint32_t now)
 {
     DriveMotorFeedback feedback;
@@ -132,9 +165,10 @@ static uint32_t calculate_safety_flags(unsigned wheel, uint32_t now)
          type_index < sizeof(s_query_types) / sizeof(s_query_types[0]);
          ++type_index) {
         const MiniDriveFeedbackType type = s_query_types[type_index];
+        const uint32_t timeout_ms = feedback_timeout_ms(type);
         if (((feedback.valid_mask & (1UL << (unsigned)type)) != 0U)
             && ((now - feedback_type_tick(&feedback, type))
-                > DRIVE_SAFETY_FEEDBACK_TIMEOUT_MS)) {
+                > timeout_ms)) {
             flags |= DRIVE_SAFETY_STALE;
         }
     }
@@ -184,10 +218,13 @@ static bool send_frame(const MiniDriveFrame *frame)
                       && rs00_fdcan_send_standard(
                              frame->id, frame->data, frame->dlc);
     if (sent) {
-        s_consecutive_tx_errors = 0U;
+        s_tx_failure_active = false;
     } else {
         ++s_tx_error_count;
-        ++s_consecutive_tx_errors;
+        if (!s_tx_failure_active) {
+            s_tx_failure_active = true;
+            s_tx_failure_since_ms = HAL_GetTick();
+        }
     }
     return sent;
 }
@@ -250,7 +287,8 @@ bool DriveController_Init(void)
     s_stop_deadline_ms = 0U;
     s_stop_feedback_since_ms = 0U;
     s_tx_error_count = 0U;
-    s_consecutive_tx_errors = 0U;
+    s_tx_failure_since_ms = 0U;
+    s_tx_failure_active = false;
     s_next_query_ms = 0U;
     s_query_wheel = 0U;
     s_query_type_index = 0U;
@@ -311,13 +349,13 @@ void DriveController_Task(void)
         }
     }
 
+    /* Apply genuinely changed targets first. Repeated 20 Hz cmd_vel updates
+     * must not keep all four wheels dirty and starve safety polling. */
     for (offset = 0U; offset < DRIVE_WHEEL_COUNT; ++offset) {
         const unsigned wheel =
             (s_round_robin_wheel + offset) % DRIVE_WHEEL_COUNT;
         const uint8_t mask = (uint8_t)(1U << wheel);
-        if (((s_speed_dirty & mask) != 0U)
-            || ((now - s_last_speed_ms[wheel])
-                >= DRIVE_SPEED_REFRESH_PERIOD_MS)) {
+        if ((s_speed_dirty & mask) != 0U) {
             if (MiniDrive_MakeSpeed(
                     s_can_ids[wheel],
                     linear_to_erpm(s_target_mps[wheel]), &frame)
@@ -331,6 +369,8 @@ void DriveController_Task(void)
         }
     }
 
+    /* Once changed targets are submitted, safety queries take precedence over
+     * redundant periodic speed refreshes. */
     if (tick_reached(now, s_next_query_ms)) {
         const MiniDriveFeedbackType type = s_query_types[s_query_type_index];
         if (MiniDrive_MakeQuery(s_can_ids[s_query_wheel], type, &frame)
@@ -345,18 +385,39 @@ void DriveController_Task(void)
         }
         return;
     }
+
+    for (offset = 0U; offset < DRIVE_WHEEL_COUNT; ++offset) {
+        const unsigned wheel =
+            (s_round_robin_wheel + offset) % DRIVE_WHEEL_COUNT;
+        if ((now - s_last_speed_ms[wheel])
+            >= DRIVE_SPEED_REFRESH_PERIOD_MS) {
+            if (MiniDrive_MakeSpeed(
+                    s_can_ids[wheel],
+                    linear_to_erpm(s_target_mps[wheel]), &frame)
+                && send_frame(&frame)) {
+                s_last_speed_ms[wheel] = now;
+                s_round_robin_wheel =
+                    (uint8_t)((wheel + 1U) % DRIVE_WHEEL_COUNT);
+            }
+            return;
+        }
+    }
 }
 
 bool DriveController_SetWheelSpeed(DriveWheelIndex wheel, float speed_mps)
 {
+    float next;
     if (!s_initialized || s_emergency_stopped
         || ((unsigned)wheel >= DRIVE_WHEEL_COUNT) || !isfinite(speed_mps)
         || (fabsf(speed_mps) > DRIVE_MAX_ABS_SPEED_MPS)
         || ((speed_mps != 0.0f) && !DriveController_IsSafetyFeedbackReady())) {
         return false;
     }
-    s_target_mps[wheel] = (speed_mps == 0.0f) ? 0.0f : speed_mps;
-    s_speed_dirty |= (uint8_t)(1U << (unsigned)wheel);
+    next = (speed_mps == 0.0f) ? 0.0f : speed_mps;
+    if (s_target_mps[wheel] != next) {
+        s_target_mps[wheel] = next;
+        s_speed_dirty |= (uint8_t)(1U << (unsigned)wheel);
+    }
     return true;
 }
 
@@ -382,10 +443,13 @@ bool DriveController_SetAllWheelSpeeds(float fl_mps, float fr_mps,
         }
     }
     for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
-        s_target_mps[index] =
+        const float next =
             (speeds[index] == 0.0f) ? 0.0f : speeds[index];
+        if (s_target_mps[index] != next) {
+            s_target_mps[index] = next;
+            s_speed_dirty |= (uint8_t)(1U << index);
+        }
     }
-    s_speed_dirty = ALL_WHEELS_MASK;
     return true;
 }
 
@@ -420,6 +484,7 @@ bool DriveController_SetDecelerationErpmS(int32_t deceleration_erpm_s)
 void DriveController_StopAll(void)
 {
     unsigned index;
+    uint8_t changed_mask = 0U;
     float highest_speed = 0.0f;
     const uint32_t now = HAL_GetTick();
     for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
@@ -427,7 +492,10 @@ void DriveController_StopAll(void)
         if (speed > highest_speed) {
             highest_speed = speed;
         }
-        s_target_mps[index] = 0.0f;
+        if (s_target_mps[index] != 0.0f) {
+            s_target_mps[index] = 0.0f;
+            changed_mask |= (uint8_t)(1U << index);
+        }
     }
     if (highest_speed > 0.0f) {
         const float deceleration_mps2 =
@@ -438,7 +506,11 @@ void DriveController_StopAll(void)
             now + (uint32_t)ceilf(braking_ms) + DRIVE_STOP_SETTLE_MARGIN_MS;
         s_stop_feedback_since_ms = 0U;
     }
-    s_speed_dirty = ALL_WHEELS_MASK;
+    /* STOPPING_DRIVE calls this function every control-loop iteration.
+     * Preserve already pending zero-speed frames, but do not recreate all
+     * four dirty bits after they have been transmitted: doing so can starve
+     * the safety-feedback queries until their timeout expires. */
+    s_speed_dirty |= changed_mask;
 }
 
 void DriveController_EmergencyStop(void)
@@ -471,7 +543,7 @@ bool DriveController_AllWheelsStopped(void)
             || ((feedback.valid_mask
                  & (1UL << MINI_DRIVE_FEEDBACK_SPEED)) == 0U)
             || ((now - feedback.last_speed_ms)
-                > DRIVE_SAFETY_FEEDBACK_TIMEOUT_MS)) {
+                > DRIVE_SPEED_FEEDBACK_TIMEOUT_MS)) {
             fresh_speed = false;
             break;
         }
@@ -497,7 +569,9 @@ bool DriveController_IsHealthy(void)
 {
     unsigned wheel;
     if (!s_initialized || s_emergency_stopped
-        || (s_consecutive_tx_errors >= DRIVE_MAX_CONSECUTIVE_TX_ERRORS)) {
+        || ((s_config_phase == CONFIG_DONE) && s_tx_failure_active
+            && ((HAL_GetTick() - s_tx_failure_since_ms)
+                >= DRIVE_TX_FAILURE_TIMEOUT_MS))) {
         return false;
     }
     for (wheel = 0U; wheel < DRIVE_WHEEL_COUNT; ++wheel) {

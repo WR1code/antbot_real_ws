@@ -73,7 +73,7 @@ CAN 总线两端各放一个 120 Ω 终端电阻；断电测量 CAN_H 与 CAN_L 
 2. 逐台停止，收到各自类型 2 反馈后继续。
 3. 逐台查询 UID，验证不是全 `00` 或全 `FF`。
 4. 逐台读取 `mechPos (0x7019)`；保存 float 和每台自己的原始 4 字节。
-5. 检查机械位置位于各轮配置的 0～π 安全范围。
+5. 检查机械位置有限；本车连续旋转机构不执行 0～π 机械范围检查。
 6. 写 `run_mode=5`，然后读回 `0x7005`。
 7. 写并逐项读回 `limit_spd=1.0 rad/s`、`limit_cur=2.0 A`、
    `canTimeout=10000`（约 500 ms）。
@@ -152,8 +152,8 @@ if (SteeringController_GetState() == STEERING_STATE_ARMED) {
 }
 ```
 
-只有进入 `READY` 后才接受角度。目标会经过每台的方向符号、零偏和 0～π机械
-安全范围检查。`STEERING_CALIBRATION_CONFIRMED=0` 时整车运动被锁定，直接转向
+只有进入 `READY` 后才接受角度。目标会经过每台的方向符号和零偏；连续旋转
+机构选择离当前保持目标最近的等效圈数。`STEERING_CALIBRATION_CONFIRMED=0` 时整车运动被锁定，直接转向
 命令还必须相对上一目标不超过 `0.01 rad`，用于架空标定：
 
 ```c
@@ -173,7 +173,7 @@ SteeringController_EmergencyStop();
 清故障只允许显式调用 `SteeringController_ClearFaultAndRestart()`；其停止帧
 Data Byte0 为 `01`，之后重新走完整初始化，且默认仍停在 ARMED。
 
-## 7. 安装方向、零偏和机械限位标定
+## 7. 安装方向与零偏标定
 
 `STEERING_DIRECTION_SIGNS` 和 `STEERING_ZERO_OFFSETS_RAD` 初始均为 `+1` 和
 `0`，只用于代码初始化，不能根据 CAN ID 推断方向。
@@ -183,12 +183,12 @@ Data Byte0 为 `01`，之后重新走完整初始化，且默认仍停在 ARMED�
 3. 显式使能，采用不超过 `0.01 rad` 的小步长。
 4. 记录底盘正方向命令对应的实际轮向；反向者把 sign 改为 `-1`。
 5. 机械对中后记录电机 `mechPos`，求出使底盘角度 0 对应的 zero offset。
-6. 缓慢测出机构两端留有安全余量的最小/最大电机位置。
-7. 写入四台 min/max。当前 `STEERING_ENABLE_MECHANICAL_LIMIT_CHECK=1`，不得在
-   实机运动前关闭。
+6. 本车转向机构已解除 360°机械限制，保持
+   `STEERING_ENABLE_MECHANICAL_LIMIT_CHECK=0`。固件会选择离当前保持目标最近的
+   等效圈数，避免编码器跨圈后无故多转一整圈。
 
 完成全部实机验证前不要把 `STEERING_AUTO_ENABLE` 改为 `1`。
-完成 UID、方向、零偏和安全端点后，同时填写 `STEERING_EXPECTED_UIDS`、设置
+完成 UID、方向和零偏后，同时填写 `STEERING_EXPECTED_UIDS`、设置
 `STEERING_ENFORCE_UID_CHECK=1` 和 `STEERING_CALIBRATION_CONFIRMED=1`；编译器会
 拒绝“已标定但未强制 UID”的组合。
 

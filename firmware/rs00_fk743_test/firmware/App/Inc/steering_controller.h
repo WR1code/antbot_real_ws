@@ -141,6 +141,8 @@ bool SteeringController_SetMotorAngle(SteeringMotorIndex index,
                                       float chassis_angle_rad);
 bool SteeringController_SetAllAngles(float fl_rad, float fr_rad,
                                      float rl_rad, float rr_rad);
+bool SteeringController_EvaluateAngleTravel(float chassis_angle_rad,
+                                            float *max_travel_rad);
 bool SteeringController_IsHealthy(void);
 bool SteeringController_IsCalibrationConfirmed(void);
 

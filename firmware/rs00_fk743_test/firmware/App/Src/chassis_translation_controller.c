@@ -12,6 +12,9 @@
 #include <string.h>
 
 #define RAD_TO_DEG (180.0f / 3.14159265358979323846f)
+#define TWO_PI_RAD 6.28318530717958647692f
+#define PI_RAD 3.14159265358979323846f
+#define PATH_TIE_EPSILON_RAD 0.001f
 
 enum {
     CHASSIS_ERROR_NONE = 0,
@@ -139,6 +142,48 @@ static float circular_difference_deg(float first, float second)
     return difference;
 }
 
+static void optimize_steering_path(TranslationSolution *next)
+{
+    float direct;
+    float reversed;
+    float direct_travel;
+    float reversed_travel;
+    bool use_reversed;
+
+    if (next == NULL) {
+        return;
+    }
+
+    /* A wheel axis at angle A with traction sign S is equivalent to angle
+     * A+pi with sign -S. Compare both candidates against all four measured
+     * steering positions, not the previous requested target. This preserves
+     * the <=90-degree property even when the joystick changes direction
+     * before an earlier steering command has finished. At an exact tie,
+     * preserve traction direction to avoid needless drive reversal. */
+    direct = next->steering_angle_rad;
+    reversed = direct + PI_RAD;
+    if (!SteeringController_EvaluateAngleTravel(direct, &direct_travel)
+        || !SteeringController_EvaluateAngleTravel(
+            reversed, &reversed_travel)) {
+        return;
+    }
+    use_reversed =
+        (reversed_travel + PATH_TIE_EPSILON_RAD < direct_travel)
+        || (s_have_solution
+            && (fabsf(reversed_travel - direct_travel)
+             <= PATH_TIE_EPSILON_RAD)
+            && (-next->drive_direction == s_solution.drive_direction));
+
+    if (use_reversed) {
+        next->steering_angle_rad = reversed;
+        next->drive_direction = (int8_t)-next->drive_direction;
+        next->signed_speed_mps = -next->signed_speed_mps;
+    } else {
+        next->steering_angle_rad = direct;
+    }
+    next->steering_angle_deg = next->steering_angle_rad * RAD_TO_DEG;
+}
+
 static bool command_drive(float signed_speed_mps)
 {
     float wheel[DRIVE_WHEEL_COUNT];
@@ -172,7 +217,7 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
 {
     TranslationSolution next;
     const uint32_t now = HAL_GetTick();
-    bool same_steering_target;
+    bool same_requested_direction;
 
     if ((s_state == CHASSIS_TRANSLATION_FAULT)
         || !SteeringController_IsCalibrationConfirmed()
@@ -186,14 +231,15 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
     s_debug.requested_speed_mps = speed_mps;
     s_debug.last_command_tick = now;
 
-    same_steering_target =
+    /* Detect a repeated command before optimizing its equivalent steering
+     * representation. Otherwise a 20 Hz refresh can alternate between
+     * A/+V and A+pi/-V while the steering motor is moving. A chosen target
+     * must remain locked until the requested chassis direction changes. */
+    same_requested_direction =
         s_have_solution
-        && (next.drive_direction == s_solution.drive_direction)
         && (circular_difference_deg(next.normalized_direction_deg,
                                     s_solution.normalized_direction_deg)
-            < CHASSIS_DIRECTION_DEADBAND_DEG)
-        && (fabsf(next.steering_angle_rad - s_solution.steering_angle_rad)
-            < (CHASSIS_DIRECTION_DEADBAND_DEG / RAD_TO_DEG));
+            < CHASSIS_DIRECTION_DEADBAND_DEG);
 
     /*
      * A ROS-style command source refreshes the same target periodically.
@@ -201,17 +247,22 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
      * machine or reset the 100 ms alignment timer. Only update the speed that
      * will be applied after alignment. In DRIVING it can be applied at once.
      */
-    if (same_steering_target
+    if (same_requested_direction
         && (s_state != CHASSIS_TRANSLATION_IDLE)) {
-        s_solution.signed_speed_mps = next.signed_speed_mps;
+        const float magnitude = fabsf(speed_mps);
+        s_solution.signed_speed_mps =
+            (magnitude == 0.0f)
+                ? 0.0f
+                : magnitude * (float)s_solution.drive_direction;
         s_debug.requested_speed_mps = speed_mps;
-        s_debug.signed_speed_mps = next.signed_speed_mps;
+        s_debug.signed_speed_mps = s_solution.signed_speed_mps;
         if (s_state == CHASSIS_TRANSLATION_DRIVING) {
-            return command_drive(next.signed_speed_mps);
+            return command_drive(s_solution.signed_speed_mps);
         }
         return true;
     }
 
+    optimize_steering_path(&next);
     s_solution = next;
     s_have_solution = true;
     s_command_pending = true;
@@ -254,8 +305,11 @@ static bool update_alignment(void)
         }
         s_debug.motor_target_rad[index] = motor.target_position_rad;
         s_debug.motor_actual_rad[index] = motor.position_rad;
-        s_debug.motor_error_rad[index] =
-            motor.position_rad - motor.target_position_rad;
+        /* RS00 position feedback can report the same physical steering
+         * orientation on a different full-turn branch. Compare modulo 2*pi
+         * so +theta, theta-2*pi and theta+2*pi all count as aligned. */
+        s_debug.motor_error_rad[index] = remainderf(
+            motor.position_rad - motor.target_position_rad, TWO_PI_RAD);
         s_debug.motor_velocity_rad_s[index] = motor.velocity_rad_s;
         /*
          * RS00 velocity feedback is quantized and remained non-zero on the

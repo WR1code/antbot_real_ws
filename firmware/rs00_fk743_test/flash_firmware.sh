@@ -5,6 +5,9 @@ readonly PROJECT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROGRAMMER_DEFAULT="/home/w/.local/share/stm32cube/bundles/programmer/2.23.0/bin/STM32_Programmer_CLI"
 readonly PROGRAMMER="${STM32_PROGRAMMER_CLI:-$PROGRAMMER_DEFAULT}"
 readonly IMAGE="$PROJECT_DIR/firmware/RS00FK743/build/Debug/RS00FK743.hex"
+readonly BIN_IMAGE="$PROJECT_DIR/firmware/RS00FK743/build/Debug/RS00FK743.bin"
+readonly DFU_UTIL_DEFAULT="/home/w/.cache/antbot-arm-toolchain/root/usr/bin/dfu-util"
+readonly DFU_UTIL="${DFU_UTIL:-$DFU_UTIL_DEFAULT}"
 
 fail()
 {
@@ -12,11 +15,23 @@ fail()
   exit 1
 }
 
-[[ -x "$PROGRAMMER" ]] || fail "找不到 STM32CubeProgrammer：$PROGRAMMER"
-[[ -s "$IMAGE" ]] || fail "找不到已编译固件：$IMAGE"
+if [[ -x "$PROGRAMMER" ]]; then
+  flash_backend=programmer
+  [[ -s "$IMAGE" ]] || fail "找不到已编译固件：$IMAGE"
+  listing="$($PROGRAMMER -l 2>&1)"
+  dfu_port="$(printf '%s\n' "$listing" | sed -n 's/.*Device Index[[:space:]]*:[[:space:]]*\(USB[0-9][0-9]*\).*/\1/p' | head -n 1)"
+else
+  flash_backend=dfu-util
+  [[ -x "$DFU_UTIL" ]] || fail "找不到 STM32CubeProgrammer 或 dfu-util"
+  [[ -s "$BIN_IMAGE" ]] || fail "找不到已编译固件：$BIN_IMAGE"
+  listing="$($DFU_UTIL -l 2>&1)"
+  dfu_port="$(printf '%s\n' "$listing" | sed -n 's/.*0483:df11.*/0483:df11/p' | head -n 1)"
+  if [[ "$listing" == *"LIBUSB_ERROR_ACCESS"* ]]; then
+    fail "已发现 STM32 DFU，但当前用户没有 USB 写权限"
+  fi
+fi
 
-listing="$($PROGRAMMER -l 2>&1)"
-if [[ "$listing" == *"No STM32 device in DFU mode connected"* ]]; then
+if [[ -z "$dfu_port" ]]; then
   cat >&2 <<'EOF'
 没有发现处于 DFU 模式的 STM32。
 
@@ -29,10 +44,8 @@ EOF
   exit 2
 fi
 
-dfu_port="$(printf '%s\n' "$listing" | sed -n 's/.*Device Index[[:space:]]*:[[:space:]]*\(USB[0-9][0-9]*\).*/\1/p' | head -n 1)"
-[[ -n "$dfu_port" ]] || fail "发现了设备，但无法解析 DFU 端口；请把 STM32_Programmer_CLI -l 的输出发给我。"
-
-echo "即将刷写：$IMAGE"
+echo "即将刷写：$([[ "$flash_backend" == programmer ]] && printf '%s' "$IMAGE" || printf '%s' "$BIN_IMAGE")"
+echo "烧录工具：$flash_backend"
 echo "DFU 端口：$dfu_port"
 echo "请保持底盘架空，刷写期间不要断电或拔线。"
 
@@ -42,7 +55,11 @@ if [[ "${RS00_ASSUME_FLASH_SAFE:-0}" != "1" ]]; then
   [[ "$answer" == "FLASH" ]] || fail "已取消，未刷写固件。"
 fi
 
-"$PROGRAMMER" -c "port=$dfu_port" -w "$IMAGE" -v
+if [[ "$flash_backend" == programmer ]]; then
+  "$PROGRAMMER" -c "port=$dfu_port" -w "$IMAGE" -v
+else
+  "$DFU_UTIL" -d 0483:df11 -a 0 -s 0x08000000:leave -D "$BIN_IMAGE"
+fi
 
 cat <<'EOF'
 
