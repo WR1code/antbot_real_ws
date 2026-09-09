@@ -140,7 +140,9 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 ```
 
 详细过程见 [Orin迁移说明](docs/ORIN_MIGRATION.md)，接线、标定和放行条件见
-[硬件确认清单](docs/HARDWARE_CHECKLIST.md)。
+[硬件确认清单](docs/HARDWARE_CHECKLIST.md)。需要让小车主机上的 Codex/终端助手
+直接从 GitHub 安全拉取时，可复制使用
+[小车主机拉取更新提示词](docs/ORIN_PULL_PROMPT.md)。
 
 ## 安全边界
 
