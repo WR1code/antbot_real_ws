@@ -10,6 +10,8 @@ Gazebo、`fake_hardware` 或原厂底盘 `ros2_control`。
 - ROS 2 `/cmd_vel` 的 `linear.x/linear.y` 发送给 H743，桥接层丢弃并告警任何
   非零 `angular.z`；
 - H743 状态发布到 `/rs00/motor_status`；
+- H743 桥发布四个转向关节和四个车轮关节的 `/joint_states`；未连接底盘时发布
+  安全零位，使 RViz 中整个轮组 TF 仍保持连接；收到反馈后切换为实车角度；
 - 支持只读状态查询、系统健康、UID 和 MINI 反馈查询；
 - 可选启动 Generic Xbox，`angular.z` 强制为 0；
 - 保留 AntBot 机器人模型、传感器、双雷达和导航源码，供硬件确认后继续接入。
@@ -71,6 +73,43 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 该入口只启动手柄驱动和 `/joy -> /cmd_vel` 映射，不启动 H743 串口桥。默认将
 线速度限制为 `0.10 m/s`，并将 `angular.z` 强制为 0。脚本会忽略触摸屏等错误生成
 的 `/dev/input/js*` 设备；如果连接了多个手柄，请设置 `ANTBOT_JOY_DEVICE`。
+
+需要复用开发机 `/home/w/project/antbot` 中 `step2_waypoints.sh` 的完整航点控制
+界面，同时使用本工作区的 H743 底层控制时，执行：
+
+```bash
+./scripts/start_antbot_operator.sh
+```
+
+它默认打开 `home_01`，保留原 Step2 的二维地图、航点、禁行区、限速区、历史卡点、
+离线三维点云和 RGB-D 预览界面，但不会启动 Isaac Sim、Gazebo、旧
+`antbot_hw_interface` 或旧 `antbot_swerve_controller`。当前 H743 尚无里程计且不
+支持 `angular.z`，因此 Nav2 自动导航明确保持关闭，RViz 中的航点可查看和编辑，
+但不能据此下发自动导航。左侧操作区采用分页，
+航点面板分为“地图与航点 / 区域规则 / 巡航任务”，各页仍可独立滚动。
+
+车辆控制中心现在分为“控制与安全 / 底盘信息 / 建图与遥控 / 相机”四页：
+
+- “底盘信息”集中显示 MINI 24 V 母线电压估算电量，以及 H743 当前可查询的
+  转向、行走驱动、故障、反馈年龄、CAN 计数等状态；百分比是可配置的
+  `18–30 V` 线性估算，不是库仑计读数。
+- “建图与遥控”可常驻切换 Xbox 与 RViz 键盘控制。键盘控制框支持
+  `Q/W/E/A/D/Z/X/C`，也可按住屏幕方向按钮，松键或失焦即发送零速。
+  界面只显示当前控制方式：选键盘时显示键盘控制器，选 Xbox 时显示
+  实测按键和摇杆说明。
+- 同一页可开始、停止和保存 SLAM Toolbox 建图；需要 `/scan_0` 已有发布者，
+  实时地图独立显示在 `/antbot/mapping/map`，不会覆盖正式 `/map`。默认保存到
+  `artifacts/maps/<地图名>/mapping_runs/<时间>/map.yaml`。
+
+即使 H743 和手柄都没有连接，上位机也会正常打开并在“真机安全门禁”面板显示
+离线。连接 H743 后，必须在 RViz 中点击“确认安全并启用”并通过二次确认；H743
+报告 ready 后，Xbox 模式仍需按手柄 `A` 键，运动指令才可能通过。
+“停止并锁定”、连接中断、硬件故障或关闭 RViz 都会撤销运动权限并发送零速帧。
+键盘模式不需要 Xbox `A` 键，但仍必须先通过同一 H743 安全门禁。
+可用 `ANTBOT_TELEOP_MODE=keyboard` 设置默认控制方式，用
+`ANTBOT_MAPPING_OUTPUT_PREFIX=/绝对路径/map` 设置建图保存位置。
+仅检查环境、不访问硬件时可运行
+`./scripts/start_antbot_operator.sh --check-only`。
 
 只启动机器人模型和H743串口桥，不启动手柄：
 

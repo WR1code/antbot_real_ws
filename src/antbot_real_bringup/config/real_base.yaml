@@ -5,10 +5,25 @@ h743_cmd_vel_bridge:
     status_topic: /rs00/motor_status
     max_linear_speed: 0.10
     telemetry_period: 0.20
+    battery_topic: /battery
+    # Voltage-only estimate: replace these endpoints after measuring the pack.
+    battery_empty_voltage: 18.0
+    battery_full_voltage: 30.0
 
 antbot_mapping_xbox:
   ros__parameters:
     use_sim_time: false
     max_linear_vel: 0.10
     max_angular_vel: 0.0
-    topics.cmd_vel: /cmd_vel
+    topics.cmd_vel: /antbot/cmd_vel/xbox
+
+antbot_operator_manager:
+  ros__parameters:
+    default_teleop_mode: xbox
+    xbox_cmd_topic: /antbot/cmd_vel/xbox
+    keyboard_cmd_topic: /antbot/cmd_vel/keyboard
+    joy_topic: /joy
+    output_cmd_topic: /cmd_vel
+    command_timeout: 0.35
+    scan_topic: /scan_0
+    mapping_topic: /antbot/mapping/map

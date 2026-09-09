@@ -24,6 +24,7 @@ setup(
             "h743_control = antbot_h743_bridge.control_tool:main",
             "h743_dashboard = antbot_h743_bridge.chassis_dashboard:main",
             "h743_uart_debug = antbot_h743_bridge.uart_debug_tool:main",
+            "antbot_operator_manager = antbot_h743_bridge.operator_manager:main",
         ],
     },
 )

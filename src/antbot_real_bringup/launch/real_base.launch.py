@@ -32,6 +32,9 @@ def generate_launch_description():
     joy_device = LaunchConfiguration("joy_device")
     max_linear_speed = LaunchConfiguration("max_linear_speed")
     telemetry_period = LaunchConfiguration("telemetry_period")
+    allow_disconnected = LaunchConfiguration("allow_disconnected")
+    default_teleop_mode = LaunchConfiguration("default_teleop_mode")
+    mapping_output_prefix = LaunchConfiguration("mapping_output_prefix")
 
     description_launch = os.path.join(
         get_package_share_directory("antbot_description"),
@@ -65,6 +68,23 @@ def generate_launch_description():
             "telemetry_period": ParameterValue(
                 telemetry_period, value_type=float
             ),
+            "allow_disconnected": ParameterValue(
+                allow_disconnected, value_type=bool
+            ),
+        }],
+    )
+
+    operator_manager = Node(
+        package="antbot_h743_bridge",
+        executable="antbot_operator_manager",
+        name="antbot_operator_manager",
+        output="screen",
+        parameters=[{
+            "default_teleop_mode": default_teleop_mode,
+            "max_linear_speed": ParameterValue(
+                max_linear_speed, value_type=float
+            ),
+            "mapping_output_prefix": mapping_output_prefix,
         }],
     )
 
@@ -99,7 +119,7 @@ def generate_launch_description():
                 max_linear_speed, value_type=float
             ),
             "max_angular_vel": 0.0,
-            "topics.cmd_vel": "/cmd_vel",
+            "topics.cmd_vel": "/antbot/cmd_vel/xbox",
         }],
     )
 
@@ -128,7 +148,17 @@ def generate_launch_description():
         DeclareLaunchArgument("joy_device", default_value="/dev/input/js0"),
         DeclareLaunchArgument("max_linear_speed", default_value="0.10"),
         DeclareLaunchArgument("telemetry_period", default_value="0.20"),
+        DeclareLaunchArgument("allow_disconnected", default_value="false"),
+        DeclareLaunchArgument(
+            "default_teleop_mode", default_value="xbox",
+            choices=["xbox", "keyboard"],
+        ),
+        DeclareLaunchArgument(
+            "mapping_output_prefix",
+            default_value="/tmp/antbot_mapping/map",
+        ),
         model,
+        operator_manager,
         bridge,
         joy,
         xbox,

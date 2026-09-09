@@ -11,11 +11,21 @@
 
   <exec_depend>antbot_description</exec_depend>
   <exec_depend>antbot_h743_bridge</exec_depend>
+  <exec_depend>antbot_navigation</exec_depend>
+  <exec_depend>antbot_dual_lidar</exec_depend>
+  <exec_depend>antbot_rgbd_dataset</exec_depend>
   <exec_depend>antbot_teleop</exec_depend>
   <exec_depend>joy_linux</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>lifecycle_msgs</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>robotcar_navigation</exec_depend>
   <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
 
   <export>
