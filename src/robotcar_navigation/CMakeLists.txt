@@ -109,6 +109,7 @@ ament_target_dependencies(${rviz_plugin_target}
   rviz_rendering
   sensor_msgs
   std_msgs
+  std_srvs
   tf2
   tf2_geometry_msgs
 )
