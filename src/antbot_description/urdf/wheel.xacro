@@ -1,29 +1,13 @@
 <?xml version="1.0" ?>
-<!-- Four independent steering + drive modules, with concept-style silver hubs. -->
+<!--
+  Four independent steering + drive kinematic modules.
+  Their visible hardware is already part of the all-in-one GK4XC STEP mesh, so
+  these links intentionally contain collision and inertia only.
+-->
 <robot name="wheel" xmlns:xacro="http://ros.org/wiki/xacro">
-
-  <xacro:macro name="WheelHub" params="face_y">
-    <visual><origin xyz="0 ${face_y} 0" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.056" length="0.009"/></geometry><material name="hub_silver"/></visual>
-    <visual><origin xyz="0 ${face_y*1.05} 0" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.038" length="0.010"/></geometry><material name="hub_light"/></visual>
-    <visual><origin xyz="0 ${face_y*1.10} 0" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.017" length="0.012"/></geometry><material name="hub_silver"/></visual>
-    <!-- eight fixed hub bolts; explicit coordinates avoid nested-macro scope issues -->
-    <visual><origin xyz="0.047 ${face_y*1.12} 0" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="0.033234 ${face_y*1.12} 0.033234" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="0 ${face_y*1.12} 0.047" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="-0.033234 ${face_y*1.12} 0.033234" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="-0.047 ${face_y*1.12} 0" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="-0.033234 ${face_y*1.12} -0.033234" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="0 ${face_y*1.12} -0.047" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-    <visual><origin xyz="0.033234 ${face_y*1.12} -0.033234" rpy="${pi/2} 0 0"/><geometry><cylinder radius="0.0032" length="0.006"/></geometry><material name="hub_bolt_dark"/></visual>
-  </xacro:macro>
 
   <xacro:macro name="SwerveWheelLeft" params="position_name x_pos y_pos">
     <link name="${position_name}_steering_link">
-      <visual>
-        <origin xyz="0 0 0" rpy="0 0 ${pi}"/>
-        <geometry><mesh filename="package://antbot_description/meshes/steering_link_r.stl" scale="${steering_mesh_scale} ${steering_mesh_scale} ${steering_mesh_scale}"/></geometry>
-        <material name="metal_gray"/>
-      </visual>
       <collision><origin xyz="0 -0.020 0.035"/><geometry><box size="0.050 0.075 0.110"/></geometry></collision>
       <inertial><mass value="1.0"/><origin xyz="0 -0.020 0.035"/><inertia ixx="0.0017" ixy="0" ixz="0" iyy="0.0014" iyz="0" izz="0.0008"/></inertial>
     </link>
@@ -33,8 +17,6 @@
       <limit effort="1000" velocity="6.5"/><dynamics damping="0.1" friction="0.01"/>
     </joint>
     <link name="${position_name}_wheel_link">
-      <visual><origin rpy="0 0 ${pi}"/><geometry><mesh filename="package://antbot_description/meshes/wheel_link_r.stl" scale="${wheel_mesh_scale} ${wheel_mesh_scale} ${wheel_mesh_scale}"/></geometry><material name="tire_black"/></visual>
-      <xacro:WheelHub face_y="0.035"/>
       <collision><origin rpy="${pi/2} 0 0"/><geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry></collision>
       <inertial><mass value="2.0"/><inertia ixx="0.0038" ixy="0" ixz="0" iyy="0.0064" iyz="0" izz="0.0038"/></inertial>
     </link>
@@ -46,7 +28,6 @@
 
   <xacro:macro name="SwerveWheelRight" params="position_name x_pos y_pos">
     <link name="${position_name}_steering_link">
-      <visual><origin/><geometry><mesh filename="package://antbot_description/meshes/steering_link_r.stl" scale="${steering_mesh_scale} ${steering_mesh_scale} ${steering_mesh_scale}"/></geometry><material name="metal_gray"/></visual>
       <collision><origin xyz="0 0.020 0.035"/><geometry><box size="0.050 0.075 0.110"/></geometry></collision>
       <inertial><mass value="1.0"/><origin xyz="0 0.020 0.035"/><inertia ixx="0.0017" ixy="0" ixz="0" iyy="0.0014" iyz="0" izz="0.0008"/></inertial>
     </link>
@@ -56,8 +37,6 @@
       <limit effort="1000" velocity="6.5"/><dynamics damping="0.1" friction="0.01"/>
     </joint>
     <link name="${position_name}_wheel_link">
-      <visual><origin/><geometry><mesh filename="package://antbot_description/meshes/wheel_link_r.stl" scale="${wheel_mesh_scale} ${wheel_mesh_scale} ${wheel_mesh_scale}"/></geometry><material name="tire_black"/></visual>
-      <xacro:WheelHub face_y="-0.035"/>
       <collision><origin rpy="${-pi/2} 0 0"/><geometry><cylinder radius="${wheel_radius}" length="${wheel_width}"/></geometry></collision>
       <inertial><mass value="2.0"/><inertia ixx="0.0038" ixy="0" ixz="0" iyy="0.0064" iyz="0" izz="0.0038"/></inertial>
     </link>
@@ -66,10 +45,4 @@
       <origin xyz="0 ${-wheel_offset} 0"/><axis xyz="0 1 0"/><limit effort="200" velocity="50"/><dynamics damping="0.05" friction="0.02"/>
     </joint>
   </xacro:macro>
-
-  <material name="tire_black"><color rgba="0.020 0.022 0.025 1.0"/></material>
-  <material name="metal_gray"><color rgba="0.42 0.44 0.47 1.0"/></material>
-  <material name="hub_silver"><color rgba="0.66 0.68 0.71 1.0"/></material>
-  <material name="hub_light"><color rgba="0.82 0.83 0.84 1.0"/></material>
-  <material name="hub_bolt_dark"><color rgba="0.25 0.27 0.29 1.0"/></material>
 </robot>

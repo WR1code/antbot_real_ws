@@ -1,0 +1,51 @@
+format_version: 1
+source_topic: /antbot/lidar/map_points
+frame_id: odom
+stamp:
+  sec: 24
+  nanosec: 0
+point_count: 118853
+fields:
+- name: x
+  offset: 0
+  datatype: 7
+  count: 1
+- name: y
+  offset: 4
+  datatype: 7
+  count: 1
+- name: z
+  offset: 8
+  datatype: 7
+  count: 1
+- name: intensity
+  offset: 12
+  datatype: 7
+  count: 1
+voxel_size: 0.05
+maximum_points: 300000
+bounds_min:
+- -6.439038276672363
+- -6.462782859802246
+- 0.001698360312730074
+bounds_max:
+- 6.310832977294922
+- 6.268618106842041
+- 1.5504956245422363
+storage_format: binary
+saved_at: '2026-07-31T09:45:16.648325+00:00'
+transform_to_map:
+  parent_frame: map
+  child_frame: odom
+  translation:
+  - 0.0022044119497213995
+  - -0.016784582236766453
+  - -3.083630255690526e-05
+  rotation_xyzw:
+  - -1.1617637656404877e-05
+  - -2.3864498413354784e-06
+  - -0.0017449990966910366
+  - 0.9999984774175847
+accumulation_method: bounded voxel accumulation of dual lidar points transformed by
+  odom pose
+warning: 当前点云由 odom 位姿累计得到，不是真正经过 LIO 闭环优化的三维 SLAM 地图，长距离运行时可能存在漂移。

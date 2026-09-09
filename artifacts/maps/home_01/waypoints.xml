@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Waterplus>
+    <waypoint name="01">
+        <pose>
+            <position x="2.63022" y="0.792" z="0"/>
+            <orientation x="0" y="0" z="0.860333" w="0.509732"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="02">
+        <pose>
+            <position x="1.71321" y="-4.33125" z="0"/>
+            <orientation x="0" y="0" z="0.620486" w="0.784218"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="03">
+        <pose>
+            <position x="0.549032" y="1.67823" z="0"/>
+            <orientation x="0" y="0" z="0.956382" w="0.292118"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="04">
+        <pose>
+            <position x="3.45722" y="-1.81242" z="0"/>
+            <orientation x="0" y="0" z="0.00879355" w="0.999961"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="05">
+        <pose>
+            <position x="2.61833" y="-3.29524" z="0"/>
+            <orientation x="0" y="0" z="0.410898" w="0.911681"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="06">
+        <pose>
+            <position x="-1.88652" y="-2.62032" z="0"/>
+            <orientation x="0" y="0" z="-0.862254" w="0.506477"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="07">
+        <pose>
+            <position x="-0.818403" y="0.290137" z="0"/>
+            <orientation x="0" y="0" z="-0.999863" w="0.0165367"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="hhh和">
+        <pose>
+            <position x="1.04179" y="-2.84189" z="0"/>
+            <orientation x="0" y="0" z="-0.0421171" w="0.999113"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="112">
+        <pose>
+            <position x="-1.3394" y="-0.631267" z="0"/>
+            <orientation x="0" y="0" z="0.732787" w="0.680458"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+    <waypoint name="113">
+        <pose>
+            <position x="-2.98905" y="-0.905741" z="0"/>
+            <orientation x="0" y="0" z="0.458876" w="0.8885"/>
+        </pose>
+        <action>none</action>
+    </waypoint>
+</Waterplus>

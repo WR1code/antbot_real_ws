@@ -1,17 +1,20 @@
 Panels:
   - Class: robotcar_navigation/VehicleStatusPanel
-    Name: 车辆状态与相机
+    Name: 车辆控制中心
   - Class: robotcar_navigation/WaypointManagerPanel
     Name: 航点与巡航组
   - Class: rviz_common/Displays
     Help Height: 70
     Name: Displays
     Property Tree Widget:
-      Expanded: ~
+      Expanded:
+        - /Robotcar Waypoints1
       Splitter Ratio: 0.5
-    Tree Height: 70
+    Tree Height: 732
   - Class: rviz_common/Tool Properties
-    Expanded: ~
+    Expanded:
+      - /Interact1
+      - /Publish Point1
     Name: Tool Properties
     Splitter Ratio: 0.5
   - Class: rviz_common/Views
@@ -47,15 +50,7 @@ Visualization Manager:
       Frame Timeout: 15
       Frames:
         All Enabled: true
-        Link6:
-          Value: true
         base_link:
-          Value: true
-        camera_color_optical_frame:
-          Value: true
-        camera_depth_optical_frame:
-          Value: true
-        camera_link:
           Value: true
         camera_mono_back_link:
           Value: true
@@ -91,31 +86,7 @@ Visualization Manager:
           Value: true
         gnss_link:
           Value: true
-        gripper_tcp:
-          Value: true
         imu_link:
-          Value: true
-        left_piper_Link1:
-          Value: true
-        left_piper_Link2:
-          Value: true
-        left_piper_Link3:
-          Value: true
-        left_piper_Link4:
-          Value: true
-        left_piper_Link5:
-          Value: true
-        left_piper_Link6:
-          Value: true
-        left_piper_Link7:
-          Value: true
-        left_piper_Link8:
-          Value: true
-        left_piper_base_link:
-          Value: true
-        left_piper_joint2_origin_link:
-          Value: true
-        left_piper_joint3_origin_link:
           Value: true
         lidar_2d_back_link:
           Value: true
@@ -133,10 +104,6 @@ Visualization Manager:
           Value: true
         map:
           Value: true
-        odom:
-          Value: true
-        payload_tower_visual_link:
-          Value: true
         rear_left_steering_link:
           Value: true
         rear_left_wheel_link:
@@ -145,37 +112,11 @@ Visualization Manager:
           Value: true
         rear_right_wheel_link:
           Value: true
-        rgbd_camera_housing_visual_link:
-          Value: true
-        right_piper_Link1:
-          Value: true
-        right_piper_Link2:
-          Value: true
-        right_piper_Link3:
-          Value: true
-        right_piper_Link4:
-          Value: true
-        right_piper_Link5:
-          Value: true
-        right_piper_Link6:
-          Value: true
-        right_piper_Link7:
-          Value: true
-        right_piper_Link8:
-          Value: true
-        right_piper_base_link:
-          Value: true
-        right_piper_joint2_origin_link:
-          Value: true
-        right_piper_joint3_origin_link:
-          Value: true
         robot_charging_coil_link:
           Value: true
         top_cylinder_front_right_link:
           Value: true
         top_cylinder_rear_left_link:
-          Value: true
-        world:
           Value: true
       Marker Scale: 1
       Name: TF
@@ -184,94 +125,58 @@ Visualization Manager:
       Show Names: true
       Tree:
         map:
-          odom:
-            base_link:
-              camera_link:
-                camera_color_optical_frame:
-                  {}
-                camera_depth_optical_frame:
-                  {}
-              camera_mono_back_link:
-                camera_mono_back_optical_link:
-                  {}
-              camera_mono_front_link:
-                camera_mono_front_optical_link:
-                  {}
-              camera_mono_left_link:
-                camera_mono_left_optical_link:
-                  {}
-              camera_mono_right_link:
-                camera_mono_right_optical_link:
-                  {}
-              camera_stereo_front_depth_link:
-                camera_stereo_front_depth_optical_link:
-                  {}
-                camera_stereo_front_rgb_link:
-                  camera_stereo_front_rgb_optical_link:
-                    {}
-              front_left_steering_link:
-                front_left_wheel_link:
-                  {}
-              front_right_steering_link:
-                front_right_wheel_link:
-                  {}
-              gnss_link:
+          base_link:
+            camera_mono_back_link:
+              camera_mono_back_optical_link:
                 {}
-              imu_link:
+            camera_mono_front_link:
+              camera_mono_front_optical_link:
                 {}
-              left_piper_base_link:
-                left_piper_Link1:
-                  left_piper_joint2_origin_link:
-                    left_piper_Link2:
-                      left_piper_joint3_origin_link:
-                        left_piper_Link3:
-                          left_piper_Link4:
-                            left_piper_Link5:
-                              left_piper_Link6:
-                                left_piper_Link7:
-                                  {}
-                                left_piper_Link8:
-                                  {}
-              lidar_2d_back_link:
-                lidar_2d_back_scan:
+            camera_mono_left_link:
+              camera_mono_left_optical_link:
+                {}
+            camera_mono_right_link:
+              camera_mono_right_optical_link:
+                {}
+            camera_stereo_front_depth_link:
+              camera_stereo_front_depth_optical_link:
+                {}
+              camera_stereo_front_rgb_link:
+                camera_stereo_front_rgb_optical_link:
                   {}
-              lidar_2d_front_link:
-                lidar_2d_front_scan:
-                  {}
-              lidar_3d_link:
-                lidar_3d_imu_link:
-                  {}
-              magnetometer_link:
+            front_left_steering_link:
+              front_left_wheel_link:
                 {}
-              payload_tower_visual_link:
+            front_right_steering_link:
+              front_right_wheel_link:
                 {}
-              rear_left_steering_link:
-                rear_left_wheel_link:
-                  {}
-              rear_right_steering_link:
-                rear_right_wheel_link:
-                  {}
-              rgbd_camera_housing_visual_link:
+            gnss_link:
+              {}
+            imu_link:
+              {}
+            lidar_2d_back_link:
+              lidar_2d_back_scan:
                 {}
-              right_piper_base_link:
-                right_piper_Link1:
-                  right_piper_joint2_origin_link:
-                    right_piper_Link2:
-                      right_piper_joint3_origin_link:
-                        right_piper_Link3:
-                          right_piper_Link4:
-                            right_piper_Link5:
-                              right_piper_Link6:
-                                right_piper_Link7:
-                                  {}
-                                right_piper_Link8:
-                                  {}
-              robot_charging_coil_link:
+            lidar_2d_front_link:
+              lidar_2d_front_scan:
                 {}
-              top_cylinder_front_right_link:
+            lidar_3d_link:
+              lidar_3d_imu_link:
                 {}
-              top_cylinder_rear_left_link:
+            magnetometer_link:
+              {}
+            rear_left_steering_link:
+              rear_left_wheel_link:
                 {}
+            rear_right_steering_link:
+              rear_right_wheel_link:
+                {}
+            robot_charging_coil_link:
+              {}
+            top_cylinder_front_right_link:
+              {}
+            top_cylinder_rear_left_link:
+              {}
       Update Interval: 0
       Value: true
     - Alpha: 1
@@ -373,59 +278,6 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        left_piper_Link1:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link2:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link3:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link4:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link5:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link6:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link7:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_Link8:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        left_piper_joint2_origin_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        left_piper_joint3_origin_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
         lidar_2d_back_link:
           Alpha: 1
           Show Axes: false
@@ -456,11 +308,6 @@ Visualization Manager:
           Alpha: 1
           Show Axes: false
           Show Trail: false
-        payload_tower_visual_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
         rear_left_steering_link:
           Alpha: 1
           Show Axes: false
@@ -481,64 +328,6 @@ Visualization Manager:
           Show Axes: false
           Show Trail: false
           Value: true
-        rgbd_camera_housing_visual_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link1:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link2:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link3:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link4:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link5:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link6:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link7:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_Link8:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_base_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-          Value: true
-        right_piper_joint2_origin_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
-        right_piper_joint3_origin_link:
-          Alpha: 1
-          Show Axes: false
-          Show Trail: false
         robot_charging_coil_link:
           Alpha: 1
           Show Axes: false
@@ -582,6 +371,29 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Reliable
         Value: /map_updates
+      Use Timestamp: false
+      Value: true
+    - Alpha: 0.800000011920929
+      Binary representation: false
+      Binary threshold: 100
+      Class: rviz_default_plugins/Map
+      Color Scheme: map
+      Draw Behind: false
+      Enabled: true
+      Name: RViz 实时建图
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /antbot/mapping/map
+      Update Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /antbot/mapping/map_updates
       Use Timestamp: false
       Value: true
     - Alpha: 0.3499999940395355
@@ -867,7 +679,7 @@ Visualization Manager:
     - Class: rviz_default_plugins/InteractiveMarkers
       Enable Transparency: true
       Enabled: true
-      Interactive Markers Namespace: ""
+      Interactive Markers Namespace: /waypoints_move
       Name: Robotcar Waypoints
       Show Axes: false
       Show Descriptions: true
@@ -1033,16 +845,16 @@ Visualization Manager:
     - Class: robotcar_navigation/AddKeepoutZone
       Topic: /waterplus/add_keepout
       Zone Name: 临时禁区
-      形状: 矩形
       当前宽度 X (m): 1
       当前高度 Y (m): 1
+      形状: 矩形
     - Class: robotcar_navigation/AddSpeedZone
       Max Speed (m/s): 0.30000001192092896
       Topic: /waterplus/add_speed_zone
       Zone Name: 低速区
-      形状: 矩形
       当前宽度 X (m): 2
       当前高度 Y (m): 2
+      形状: 矩形
   Transformation:
     Current:
       Class: rviz_default_plugins/TF
@@ -1050,7 +862,7 @@ Visualization Manager:
   Views:
     Current:
       Class: rviz_default_plugins/Orbit
-      Distance: 12
+      Distance: 18.228952407836914
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
@@ -1065,26 +877,26 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.0303977727890015
+      Pitch: 1.1297963857650757
       Target Frame: <Fixed Frame>
       Value: Orbit (rviz_default_plugins)
-      Yaw: 1.4253977537155151
+      Yaw: 3.130409002304077
     Saved: ~
 Window Geometry:
   Displays:
     collapsed: false
-  Height: 1588
+  Height: 1011
   Hide Left Dock: false
   Hide Right Dock: false
-  QMainWindow State: 000000ff00000000fd0000000100000000000001c9000005d6fc0200000005fb0000000e8f668f8672b660014e0e76f8673a010000003f0000036a0000036a00fffffffb0000000c822a70b94e0e5de1822a7ec401000003af000000820000008200fffffffb000000100044006900730070006c0061007900730100000437000000cc000000cc00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007301000005090000005d0000005d00fffffffb0000000a00560069006500770073010000056c000000a9000000a900ffffff000002be000005d600000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd0000000100000000000001ce0000038dfc0200000001fc000000430000038d000000f701000022fa000000030100000005fb0000000a005600690065007700730100000000ffffffff0000010000fffffffb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000000ffffffff0000009f00fffffffb0000000c822a70b94e0e5de1822a7ec40100000000ffffffff0000008e00fffffffb000000100044006900730070006c0061007900730100000000ffffffff0000015600fffffffb0000000e8f668f8672b660014e0e76f8673a0100000000000001ce0000009d00ffffff0000056a0000038d00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Tool Properties:
     collapsed: false
   Views:
     collapsed: false
-  Width: 1165
-  X: 3890
-  Y: 535
+  Width: 1854
+  X: 66
+  Y: 32
   航点与巡航组:
     collapsed: false
-  车辆状态与相机:
+  车辆控制中心:
     collapsed: false

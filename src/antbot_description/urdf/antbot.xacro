@@ -1,7 +1,7 @@
 <?xml version="1.0" ?>
 <!--
-  UMR-style visual conversion built on the validated ANTBot 4WS/4WD skeleton.
-  The package and all eight actuated joint names remain unchanged.
+  GK4XC-001-003 CAD visual on the validated ANTBot 4WS/4WD skeleton.
+  The package, sensor/control TF frames and all eight actuated joint names remain unchanged.
 -->
 <robot name="antbot" xmlns:xacro="http://ros.org/wiki/xacro">
   <!--
@@ -24,37 +24,29 @@
   <xacro:include filename="$(find antbot_description)/urdf/sensors.xacro"/>
   <xacro:include filename="$(find antbot_description)/urdf/base.xacro"/>
   <xacro:include filename="$(find antbot_description)/urdf/wheel.xacro"/>
-  <xacro:include filename="$(find antbot_description)/urdf/payload_tower.xacro"/>
   <xacro:include filename="$(find antbot_description)/urdf/ros2_control.xacro"/>
 
-  <!-- Photo/datasheet-based first-pass geometry -->
-  <xacro:property name="overall_length" value="0.830"/>
-  <xacro:property name="overall_width" value="0.540"/>
-  <xacro:property name="overall_height" value="0.410"/>
-  <xacro:property name="body_height" value="0.410"/>
+  <!-- Measured from the supplied SolidWorks STEP assembly. -->
+  <xacro:property name="overall_length" value="0.5510"/>
+  <xacro:property name="overall_width" value="0.8186"/>
+  <xacro:property name="overall_height" value="1.2861"/>
+  <xacro:property name="body_height" value="1.2861"/>
 
-  <!-- Wheel proportions inferred from the supplied orthogonal/oblique views -->
-  <xacro:property name="wheelbase_length" value="0.530"/>
-  <xacro:property name="wheel_center_track" value="0.480"/>
-  <xacro:property name="steering_width" value="0.360"/>
-  <xacro:property name="wheel_radius" value="0.080"/>
+  <!-- Measured wheel centres: the four module axes are the vertices of a
+       330 mm square, centred on base_link. -->
+  <xacro:property name="wheelbase_length" value="0.330"/>
+  <xacro:property name="wheel_center_track" value="0.330"/>
+  <xacro:property name="steering_width" value="0.330"/>
+  <xacro:property name="wheel_radius" value="0.0525"/>
   <xacro:property name="wheel_width" value="0.058"/>
   <xacro:property name="steering_height" value="${wheel_radius}"/>
   <xacro:property name="wheel_offset" value="${(wheel_center_track - steering_width)/2}"/>
 
-  <!-- Existing wheel mesh is 205.943 mm diameter and 75.2 mm wide -->
-  <xacro:property name="wheel_mesh_scale" value="0.000777"/>
-  <xacro:property name="steering_mesh_scale" value="0.000750"/>
-
-  <!--
-    The top collision reaches z=0.410 m.  With the lidar mount at z=0.344 m,
-    0.070 m puts the optical scan plane at z=0.414 m: clear of the top collision
-    while remaining visually attached to the 0.038 m-high dome.
-  -->
+  <!-- Preserve the existing calibrated scan-frame offset. The chassis STEP
+       does not define ROS sensor frames, so those transforms are unchanged. -->
   <xacro:property name="lidar_scan_z_offset" value="0.070"/>
 
   <xacro:Base/>
-  <xacro:PayloadTower/>
 
   <xacro:SwerveWheelLeft position_name="front_left"
                          x_pos="${wheelbase_length/2}" y_pos="${steering_width/2}"/>
@@ -65,7 +57,7 @@
   <xacro:SwerveWheelRight position_name="rear_right"
                           x_pos="${-wheelbase_length/2}" y_pos="${-steering_width/2}"/>
 
-  <!-- Approximate UMR sensor frames; refine after hardware measurements -->
+  <!-- Sensor TF frames are retained independently from the CAD visual. -->
   <xacro:Sensors name="camera_stereo_front_depth" xyz="0.410 0.045 0.205" rpy="0.0 0.0 0.0"/>
   <xacro:OpticalFrame name="camera_stereo_front_depth_optical" parent="camera_stereo_front_depth"/>
   <xacro:SensorsRel parent="camera_stereo_front_depth" child="camera_stereo_front_rgb" xyz="0.0 -0.090 0.0" rpy="0.0 0.0 0.0"/>

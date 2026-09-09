@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly RS00_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-readonly ANTBOT_ROOT="${ANTBOT_ROOT:-/home/w/project/antbot}"
+readonly ANTBOT_ROOT="${ANTBOT_ROOT:-${ANTBOT_REAL_WS:-$(cd -- "$RS00_ROOT/../.." && pwd)}}"
 readonly UART_PORT="$(PYTHONPATH="$SCRIPT_DIR" python3 -c \
   'from serial_port import resolve_uart_port; print(resolve_uart_port())')"
 readonly JOY_DEVICE="${RS00_JOY_DEVICE:-/dev/input/js0}"

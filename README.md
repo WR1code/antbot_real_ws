@@ -1,8 +1,9 @@
 # AntBot Orin 真机工作区
 
-这是从现有 AntBot、RobotCar 和 STM32H743 工程整理出的独立真机工作区。它可以
-整体复制到 NVIDIA Jetson Orin Nano，不依赖原来的绝对路径，也不会启动 Isaac Sim、
-Gazebo、`fake_hardware` 或原厂底盘 `ros2_control`。
+这是以 `antbot_real_ws` 为唯一运行源的 AntBot 真机工作区。它可以整体复制到
+NVIDIA Jetson Orin Nano，模型、RViz2 配置、地图、操作界面和 H743 底层均从本仓库
+加载，不依赖 `/home/w/project/antbot`，也不会启动 Isaac Sim、Gazebo、
+`fake_hardware` 或原厂底盘 `ros2_control`。
 
 ## 当前可用范围
 
@@ -27,14 +28,16 @@ antbot_real_ws/
 ├── src/
 │   ├── antbot_h743_bridge/    H743 ROS 2 串口桥和CLI
 │   ├── antbot_real_bringup/   不含仿真的真机启动入口
-│   ├── antbot_*               复制的真机相关ROS源码
+│   ├── antbot_description/    GK4XC STEP 实车模型及 ROS 描述
+│   ├── antbot_*               真机相关ROS源码
 │   ├── vanjee_lidar_*         2D雷达源码
 │   └── robotcar_navigation/   导航/RViz插件实际副本，不是软链接
 ├── firmware/
 │   ├── rs00_fk743_test/       H743完整源码、文档和主机测试
 │   └── images/                已验证的Debug/Release HEX
 ├── repos/                     可选传感器外部依赖清单
-├── maps/                      真机地图预留目录（不含仿真地图）
+├── artifacts/maps/home_01/    默认二维地图、航点及离线点云
+├── maps/                      其他真机地图预留目录（不含仿真地图）
 ├── scripts/                   构建、迁移、预检和启动脚本
 └── docs/                      Orin迁移与硬件确认文档
 ```
@@ -74,8 +77,7 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 线速度限制为 `0.10 m/s`，并将 `angular.z` 强制为 0。脚本会忽略触摸屏等错误生成
 的 `/dev/input/js*` 设备；如果连接了多个手柄，请设置 `ANTBOT_JOY_DEVICE`。
 
-需要复用开发机 `/home/w/project/antbot` 中 `step2_waypoints.sh` 的完整航点控制
-界面，同时使用本工作区的 H743 底层控制时，执行：
+启动本仓库自带的完整航点控制界面、GK4XC 实车模型和 H743 底层：
 
 ```bash
 ./scripts/start_antbot_operator.sh
@@ -110,6 +112,12 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 `ANTBOT_MAPPING_OUTPUT_PREFIX=/绝对路径/map` 设置建图保存位置。
 仅检查环境、不访问硬件时可运行
 `./scripts/start_antbot_operator.sh --check-only`。
+
+小车外观来自
+`src/antbot_description/cad/GK4XC-001-003 4轮转向小车总装.STEP`。原始 STEP
+由 Git LFS 保存；RViz2 实际加载其约 8.2 MB 的轻量化 STL，因此运行和部署不需要
+实时解析 295 MB CAD。首次克隆后如需取得原始 STEP，执行 `git lfs pull`；只运行
+机器人则普通克隆即可，因为 STL 随 Git 正常下载。
 
 只启动机器人模型和H743串口桥，不启动手柄：
 

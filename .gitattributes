@@ -1,0 +1,1 @@
+src/antbot_description/cad/*.STEP filter=lfs diff=lfs merge=lfs -text

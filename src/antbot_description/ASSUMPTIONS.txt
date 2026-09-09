@@ -1,9 +1,9 @@
-UMR concept-v2 modeling assumptions
+GK4XC-001-003 CAD model conventions
 ===================================
 Coordinate convention: +X front, +Y left, +Z up.
-Main body envelope: approximately 0.830 x 0.540 x 0.410 m.
-Wheel diameter: 0.160 m; wheel width: approximately 0.058 m.
-Wheelbase: 0.530 m; wheel-center track: 0.480 m.
-Visual surface details are inferred from the supplied concept image.
-Collision geometry and all eight actuated joint names remain unchanged.
-Top sensor diagonal: lidar at front-left/rear-right; short cylinder at front-right/rear-left.
+The source SolidWorks STEP uses millimetres and is rotated -90 degrees around
+ROS Y in base.xacro. The resulting visual envelope is approximately
+0.551 x 0.819 x 1.286 m (ROS X x Y x Z).
+The full CAD assembly is the only vehicle visual. Collision geometry remains
+simplified and all eight steering/drive joint names remain compatible.
+Sensor TF frames are retained separately because STEP does not encode ROS TF.

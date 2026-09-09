@@ -17,6 +17,7 @@ rsync -az --info=progress2 \
   --exclude '/install/' \
   --exclude '/log/' \
   --exclude '/dist/' \
+  --exclude '/src/antbot_description/cad/*.STEP' \
   --exclude '__pycache__/' \
   --exclude '.pytest_cache/' \
   "${workspace}/" "${target}:${destination%/}/"

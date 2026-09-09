@@ -1,0 +1,23 @@
+format_version: 1
+map_name: home_01
+created_at: '2026-07-31T09:45:43.263592+00:00'
+occupancy_map_yaml: map.yaml
+pointcloud_file: cloud.pcd
+pointcloud_metadata_file: cloud_metadata.yaml
+waypoint_file: waypoints.xml
+navigation_frame: map
+cloud_frame: odom
+source_topic: /antbot/lidar/map_points
+map_to_cloud_transform:
+  parent_frame: map
+  child_frame: odom
+  translation:
+  - 0.0022044119497213995
+  - -0.016784582236766453
+  - -3.083630255690526e-05
+  rotation_xyzw:
+  - -1.1617637656404877e-05
+  - -2.3864498413354784e-06
+  - -0.0017449990966910366
+  - 0.9999984774175847
+notes: ''
