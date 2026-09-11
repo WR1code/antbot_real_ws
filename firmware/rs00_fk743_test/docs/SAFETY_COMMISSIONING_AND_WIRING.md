@@ -243,7 +243,7 @@ python3 host/control_tool.py drive-stop
 | MINI 电流绝对值 | 8 A | 锁存故障、撤流 |
 | MINI 温度 | 85 °C | 锁存故障、撤流 |
 | MINI 电压 | 36～60 V（48 V 标称母线） | 锁存故障、撤流 |
-| MINI 反馈速度 | 1500 erpm | 锁存故障、撤流 |
+| MINI 反馈速度 | 3000 erpm | 锁存故障、撤流 |
 | 停轮确认 | 四轮 ≤30 erpm 持续 100 ms | 才允许转向 |
 | MCU IWDG | 标称约 2 s | 主循环卡死自动 MCU 复位 |
 

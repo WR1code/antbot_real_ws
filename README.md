@@ -8,17 +8,16 @@ NVIDIA Jetson Orin Nano，模型、RViz2 配置、地图、操作界面和 H743 
 ## 当前可用范围
 
 - Orin 通过 3.3 V USB-TTL 与 H743 USART1 通信；
-- ROS 2 `/cmd_vel` 的 `linear.x/linear.y` 发送给 H743，桥接层丢弃并告警任何
-  非零 `angular.z`；
+- ROS 2 `/cmd_vel` 的 `linear.x/linear.y` 平移和 `angular.z` 原地旋转发送给 H743；
 - H743 状态发布到 `/rs00/motor_status`；
 - H743 桥发布四个转向关节和四个车轮关节的 `/joint_states`；未连接底盘时发布
   安全零位，使 RViz 中整个轮组 TF 仍保持连接；收到反馈后切换为实车角度；
 - 支持只读状态查询、系统健康、UID 和 MINI 反馈查询；
-- 可选启动 Generic Xbox，`angular.z` 强制为 0；
+- 可选启动 Generic Xbox，LT 逆时针原地旋转、RT 顺时针原地旋转；
 - 保留 AntBot 机器人模型、传感器、双雷达和导航源码，供硬件确认后继续接入。
 
-当前尚不能宣称完整 Nav2 实机闭环：H743 还不支持 `angular.z`，也没有向 ROS 发布
-轮式里程计 `/odom` 和 `odom -> base_link`。在解决这两项前只允许底盘纯平移、状态
+当前尚不能宣称完整 Nav2 实机闭环：H743 虽支持手动原地旋转，但还没有向 ROS 发布
+轮式里程计 `/odom` 和 `odom -> base_link`。在解决里程计前只允许手动遥控、状态
 监控和传感器联调，不启动自动导航。
 
 ## 目录
@@ -74,7 +73,8 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 ```
 
 该入口只启动手柄驱动和 `/joy -> /cmd_vel` 映射，不启动 H743 串口桥。默认将
-线速度限制为 `0.10 m/s`，并将 `angular.z` 强制为 0。脚本会忽略触摸屏等错误生成
+线速度限制为 `1.50 m/s`，提供 `10/25/50/75/100%` 五档；LT/RT 发布最大
+`1.0 rad/s` 的逆/顺时针原地旋转。脚本会忽略触摸屏等错误生成
 的 `/dev/input/js*` 设备；如果连接了多个手柄，请设置 `ANTBOT_JOY_DEVICE`。
 
 启动本仓库自带的完整航点控制界面、GK4XC 实车模型和 H743 底层：
@@ -85,8 +85,8 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 
 它默认打开 `home_01`，保留原 Step2 的二维地图、航点、禁行区、限速区、历史卡点、
 离线三维点云和 RGB-D 预览界面，但不会启动 Isaac Sim、Gazebo、旧
-`antbot_hw_interface` 或旧 `antbot_swerve_controller`。当前 H743 尚无里程计且不
-支持 `angular.z`，因此 Nav2 自动导航明确保持关闭，RViz 中的航点可查看和编辑，
+`antbot_hw_interface` 或旧 `antbot_swerve_controller`。当前 H743 尚无里程计，
+因此 Nav2 自动导航明确保持关闭，RViz 中的航点可查看和编辑，
 但不能据此下发自动导航。左侧操作区采用分页，
 航点面板分为“地图与航点 / 区域规则 / 巡航任务”，各页仍可独立滚动。
 

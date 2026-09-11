@@ -6,7 +6,7 @@ real_workspace="$(cd -- "${script_dir}/.." && pwd)"
 map_name="${ANTBOT_MAP_NAME:-home_01}"
 map_project_dir="${ANTBOT_MAP_PROJECT_DIR:-${real_workspace}/artifacts/maps/${map_name}}"
 rviz_config="${ANTBOT_RVIZ_CONFIG:-${real_workspace}/src/antbot_navigation/rviz/waypoint_navigation.rviz}"
-max_linear_speed="${ANTBOT_MAX_LINEAR_SPEED:-0.10}"
+max_linear_speed="${ANTBOT_MAX_LINEAR_SPEED:-1.50}"
 default_teleop_mode="${ANTBOT_TELEOP_MODE:-xbox}"
 mapping_run_id="${ANTBOT_MAPPING_RUN_ID:-$(date +%Y%m%d_%H%M%S)}"
 mapping_output_prefix="${ANTBOT_MAPPING_OUTPUT_PREFIX:-${map_project_dir}/mapping_runs/${mapping_run_id}/map}"
@@ -32,7 +32,7 @@ usage()
   ANTBOT_MAP_PROJECT_DIR     完整地图项目目录（优先于默认目录）
   RS00_UART_PORT             H743 的 /dev/serial/by-id/... 路径
   ANTBOT_JOY_DEVICE          Xbox/手柄设备，例如 /dev/input/js0
-  ANTBOT_MAX_LINEAR_SPEED    线速度上限，默认 0.10 m/s
+  ANTBOT_MAX_LINEAR_SPEED    线速度上限，默认 1.50 m/s（五档 10/25/50/75/100%）
   ANTBOT_TELEOP_MODE         默认控制方式：xbox 或 keyboard
   ANTBOT_MAPPING_OUTPUT_PREFIX  RViz 建图页面保存前缀
   ANTBOT_RVIZ_CONFIG         完整 Step2 RViz 配置文件
@@ -142,14 +142,13 @@ for node in /h743_cmd_vel_bridge /antbot_operator_manager /antbot_operator_slam 
   fi
 done
 
-start_joy=false
-joy_device="${ANTBOT_JOY_DEVICE:-/dev/input/js0}"
+start_joy=true
+joy_device="${ANTBOT_JOY_DEVICE:-auto}"
 if detected_joy="$("${script_dir}/find_gamepad.sh" 2>/dev/null)"; then
-  start_joy=true
   joy_device="$detected_joy"
   echo "手柄已连接：$joy_device"
 else
-  echo "手柄未连接：完整上位机仍会启动，可在 RViz 切换为键盘控制。"
+  echo "手柄暂未连接：后台会持续检测并自动接入，也可在 RViz 切换为键盘控制。"
 fi
 
 echo
@@ -157,7 +156,7 @@ echo "正在从 antbot_real_ws 打开完整航点控制界面……"
 echo "H743 可离线并自动重连；界面内点击“确认安全并启用”才会请求真机权限。"
 echo "“建图与遥控”页可选 Xbox/键盘并启停建图；建图需要 /scan_0。"
 echo "地图保存前缀：${mapping_output_prefix}"
-echo "自动导航保持关闭（当前底层没有 /odom，且不支持 angular.z）。"
+echo "自动导航保持关闭（当前底层没有 /odom；Xbox LT/RT 原地旋转可用）。"
 echo "关闭 RViz 或按 Ctrl+C 会同时停止整个真机控制流程。"
 
 exec ros2 launch antbot_real_bringup operator_step2.launch.py \

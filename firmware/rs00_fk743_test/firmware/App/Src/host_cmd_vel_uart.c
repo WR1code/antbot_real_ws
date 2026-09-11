@@ -676,15 +676,13 @@ static ChassisAckStatus handle_command(const HostCmdVel *command)
         ChassisTranslation_Stop();
         return ACK_REJECTED_DISABLED;
     }
-    if (command->wz_mrad_s != 0) {
-        ++s_debug.rejected_angular_commands;
-        ChassisDebug_SetReject(CHASSIS_REJECT_NONZERO_ANGULAR_Z);
-        ChassisTranslation_Stop();
-        return ACK_REJECTED_ANGULAR_Z;
-    }
-    if (!ChassisTranslation_CommandVelocity(
+    if (!ChassisTranslation_CommandTwist(
             (float)command->vx_mm_s / 1000.0f,
-            (float)command->vy_mm_s / 1000.0f)) {
+            (float)command->vy_mm_s / 1000.0f,
+            (float)command->wz_mrad_s / 1000.0f)) {
+        if (command->wz_mrad_s != 0) {
+            ++s_debug.rejected_angular_commands;
+        }
         ++s_debug.rejected_motion_commands;
         ChassisDebug_SetReject(CHASSIS_REJECT_INVALID_COMMAND);
         ChassisTranslation_Stop();

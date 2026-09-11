@@ -185,11 +185,11 @@ then
 fi
 
 echo "============================================================"
-echo "RS00 实机 Xbox 控制（纯平移）"
+echo "RS00 实机 Xbox 控制（平移 + 原地旋转）"
 echo "串口：$UART_PORT"
 echo "手柄：$JOY_DEVICE"
 echo "最大平移速度：$MAX_LINEAR_SPEED m/s"
-echo "LT/RT 旋转：禁用（当前 STM32 固件尚不支持 angular.z）"
+echo "LT/RT 旋转：LT 逆时针，RT 顺时针（最大 1.0 rad/s）"
 echo "============================================================"
 
 prepare_chassis
@@ -229,7 +229,7 @@ setsid ros2 run antbot_teleop mapping_xbox --ros-args \
   -p map_use_sim_time:=false \
   -p use_sim_time:=false \
   -p max_linear_vel:="$MAX_LINEAR_SPEED" \
-  -p max_angular_vel:=0.0 &
+  -p max_angular_vel:=1.0 &
 CHILD_PIDS+=("$!")
 
 wait -n "${CHILD_PIDS[@]}"

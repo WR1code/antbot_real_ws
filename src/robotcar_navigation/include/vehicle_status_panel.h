@@ -20,11 +20,13 @@
 
 class QLabel;
 class QDoubleSpinBox;
+class QComboBox;
 class QEvent;
 class QProgressBar;
 class QPushButton;
 class QRadioButton;
 class QStackedWidget;
+class QTableWidget;
 class QTreeWidget;
 
 namespace robotcar_navigation
@@ -47,7 +49,10 @@ private Q_SLOTS:
   void updateDataStatus();
   void requestSafetyEnable();
   void requestSafetyStop();
+  void requestSystemReset();
   void publishKeyboardCommand();
+  void refreshCameraTopics();
+  void toggleCamera();
 
 private:
   void handleOdometry(const nav_msgs::msg::Odometry::SharedPtr message);
@@ -61,6 +66,7 @@ private:
   void saveMapping();
   void setButtonMotion(int forward, int left);
   void clearButtonMotion();
+  void subscribeCameraTopic();
   static QImage convertImage(const sensor_msgs::msg::Image & message);
   void showCameraImage(const QImage & image, const QString & encoding);
 
@@ -73,6 +79,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr operator_ui_status_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr keyboard_cmd_pub_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr operator_enable_client_;
+  rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr system_reset_client_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr teleop_mode_client_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr mapping_enable_client_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr mapping_save_client_;
@@ -80,6 +87,7 @@ private:
   QLabel * hardware_status_;
   QPushButton * safety_enable_button_;
   QPushButton * safety_stop_button_;
+  QPushButton * system_reset_button_;
   QLabel * intent_value_;
   QLabel * intent_detail_;
   QLabel * speed_value_;
@@ -89,9 +97,20 @@ private:
   QLabel * odometry_status_;
   QProgressBar * battery_bar_;
   QLabel * battery_detail_;
+  QLabel * chassis_summary_;
+  QLabel * connection_value_;
+  QLabel * chassis_state_value_;
+  QLabel * fault_value_;
+  QLabel * can_value_;
+  QLabel * xbox_speed_level_value_;
+  QTableWidget * steering_table_;
+  QTableWidget * drive_table_;
   QTreeWidget * extended_status_;
   QLabel * camera_view_;
   QLabel * camera_status_;
+  QComboBox * camera_topic_box_;
+  QPushButton * camera_toggle_button_;
+  QPushButton * camera_refresh_button_;
   QRadioButton * xbox_mode_button_;
   QRadioButton * keyboard_mode_button_;
   QLabel * teleop_status_;
@@ -110,6 +129,7 @@ private:
 
   bool has_odometry_ = false;
   bool has_camera_ = false;
+  bool camera_open_ = true;
   bool has_battery_ = false;
   bool has_hardware_status_ = false;
   std::chrono::steady_clock::time_point last_odometry_time_;

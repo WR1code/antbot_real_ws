@@ -119,8 +119,8 @@ firmware/RS00FK743/build/Debug/RS00FK743.elf
 刷新命令（间隔小于 `300 ms`），否则安全超时会把四轮速度降为零。首次架空
 测试建议从 `0.03~0.05 m/s` 开始。
 
-USART1 已接入 ROS 2 风格的 `cmd_vel` 二进制命令，支持 `linear.x` 和
-`linear.y` 纯平移；当前非零 `angular.z` 会安全停车。协议、接线和上位机脚本
+USART1 已接入 ROS 2 风格的 `cmd_vel` 二进制命令，支持 `linear.x/linear.y`
+平移以及 `angular.z` 原地旋转（正值逆时针、负值顺时针）。协议、接线和上位机脚本
 见 [ROS 2 cmd_vel 串口接入](docs/HOST_CMD_VEL_UART.md)。
 
 完整的 UART 二进制 ACK、ST-Link `g_chassis_debug` 快照、断点位置和 USB-CAN

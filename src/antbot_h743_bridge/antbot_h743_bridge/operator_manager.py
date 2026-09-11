@@ -2,9 +2,11 @@
 """Own teleoperation selection and the RViz-controlled mapping process."""
 
 import json
+import glob
 import math
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
 import time
@@ -14,19 +16,30 @@ import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from std_msgs.msg import String
+from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
 
 
 TELEOP_MODES = ("xbox", "keyboard")
+GAMEPAD_NAME_PATTERN = re.compile(
+    r"x-?box|gamepad|joystick|controller|dualshock|dualsense|8bitdo",
+    re.IGNORECASE,
+)
+NON_GAMEPAD_NAME_PATTERN = re.compile(
+    r"touch|mouse|ilitek", re.IGNORECASE
+)
 
 
 def limited_twist(message: Twist, max_linear_speed: float) -> Twist:
-    """Copy a finite translation-only command and clamp its planar magnitude."""
+    """Copy a finite point-turn/translation command and clamp translation."""
     result = Twist()
     vx = float(message.linear.x)
     vy = float(message.linear.y)
-    if not math.isfinite(vx) or not math.isfinite(vy):
+    wz = float(message.angular.z)
+    if not all(math.isfinite(value) for value in (vx, vy, wz)):
+        return result
+    if abs(wz) > 1.0e-6:
+        result.angular.z = max(-1.0, min(1.0, wz))
         return result
     magnitude = math.hypot(vx, vy)
     if magnitude > max_linear_speed and magnitude > 0.0:
@@ -38,6 +51,41 @@ def limited_twist(message: Twist, max_linear_speed: float) -> Twist:
     return result
 
 
+def is_gamepad_name(name: str) -> bool:
+    """Accept real controller names while rejecting touchscreen js devices."""
+    return bool(
+        name
+        and not NON_GAMEPAD_NAME_PATTERN.search(name)
+        and GAMEPAD_NAME_PATTERN.search(name)
+    )
+
+
+def gamepad_name(device: str) -> str:
+    """Return the Linux input name for a /dev/input/js* device."""
+    name_path = Path("/sys/class/input") / Path(device).name / "device/name"
+    try:
+        return name_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def discover_gamepad(configured_device: str = "auto") -> tuple[str, str]:
+    """Resolve an explicit device or the first readable real gamepad."""
+    if configured_device and configured_device != "auto":
+        if os.path.exists(configured_device) and os.access(configured_device, os.R_OK):
+            name = gamepad_name(configured_device)
+            if is_gamepad_name(name):
+                return configured_device, name
+        return "", ""
+    for device in sorted(glob.glob("/dev/input/js*")):
+        if not os.access(device, os.R_OK):
+            continue
+        name = gamepad_name(device)
+        if is_gamepad_name(name):
+            return device, name
+    return "", ""
+
+
 class OperatorManager(Node):
     """Multiplex operator inputs and manage an embedded SLAM Toolbox child."""
 
@@ -47,6 +95,8 @@ class OperatorManager(Node):
         self.declare_parameter("xbox_cmd_topic", "/antbot/cmd_vel/xbox")
         self.declare_parameter("keyboard_cmd_topic", "/antbot/cmd_vel/keyboard")
         self.declare_parameter("joy_topic", "/joy")
+        self.declare_parameter("manage_joy", True)
+        self.declare_parameter("joy_device", "auto")
         self.declare_parameter("output_cmd_topic", "/cmd_vel")
         self.declare_parameter("max_linear_speed", 0.10)
         self.declare_parameter("command_timeout", 0.35)
@@ -71,11 +121,24 @@ class OperatorManager(Node):
         self.mapping_output_prefix = str(
             self.get_parameter("mapping_output_prefix").value
         )
+        self.manage_joy = bool(self.get_parameter("manage_joy").value)
+        self.configured_joy_device = str(
+            self.get_parameter("joy_device").value
+        ) or "auto"
         self.mapping_process = None
         self.mapping_log_handle = None
         self.mapping_error = ""
+        self.joy_process = None
+        self.joy_device_active = ""
+        self.joy_device_name = ""
+        self.joy_manager_error = ""
         self.last_command_time = 0.0
+        self.last_command_vx = 0.0
+        self.last_command_vy = 0.0
+        self.last_command_wz = 0.0
         self.zero_sent = True
+        self.xbox_armed = False
+        self.xbox_status = {}
 
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -98,6 +161,12 @@ class OperatorManager(Node):
             lambda message: self.forward_command("keyboard", message),
             10,
         )
+        self.xbox_armed_subscription = self.create_subscription(
+            Bool, "/antbot_xbox/armed", self.handle_xbox_armed, state_qos
+        )
+        self.xbox_status_subscription = self.create_subscription(
+            String, "/antbot_xbox/status", self.handle_xbox_status, state_qos
+        )
         self.teleop_service = self.create_service(
             SetBool, "/antbot/teleop/use_xbox", self.set_teleop_mode
         )
@@ -109,19 +178,42 @@ class OperatorManager(Node):
         )
         self.command_timer = self.create_timer(0.05, self.command_watchdog)
         self.status_timer = self.create_timer(0.5, self.publish_status)
+        self.joy_timer = self.create_timer(1.0, self.update_gamepad)
         self.publish_zero()
+        self.update_gamepad()
         self.publish_status()
 
     def forward_command(self, source: str, message: Twist) -> None:
         """Forward only the currently selected operator source."""
         if source != self.teleop_mode:
             return
-        self.cmd_publisher.publish(limited_twist(message, self.max_linear_speed))
+        command = limited_twist(message, self.max_linear_speed)
+        self.cmd_publisher.publish(command)
+        self.last_command_vx = float(command.linear.x)
+        self.last_command_vy = float(command.linear.y)
+        self.last_command_wz = float(command.angular.z)
         self.last_command_time = time.monotonic()
         self.zero_sent = False
 
+    def handle_xbox_armed(self, message: Bool) -> None:
+        self.xbox_armed = bool(message.data)
+        self.publish_status()
+
+    def handle_xbox_status(self, message: String) -> None:
+        try:
+            status = json.loads(message.data)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if isinstance(status, dict):
+            self.xbox_status = status
+            self.xbox_armed = bool(status.get("armed", False))
+            self.publish_status()
+
     def publish_zero(self) -> None:
         self.cmd_publisher.publish(Twist())
+        self.last_command_vx = 0.0
+        self.last_command_vy = 0.0
+        self.last_command_wz = 0.0
         self.zero_sent = True
 
     def command_watchdog(self) -> None:
@@ -130,6 +222,57 @@ class OperatorManager(Node):
             and time.monotonic() - self.last_command_time > self.command_timeout
         ):
             self.publish_zero()
+
+    def stop_gamepad(self) -> None:
+        process = self.joy_process
+        if process is not None and process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGINT)
+                process.wait(timeout=2.0)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        self.joy_process = None
+        self.joy_device_active = ""
+        self.joy_device_name = ""
+
+    def update_gamepad(self) -> None:
+        """Hot-plug joy_linux when a supported controller appears."""
+        if not self.manage_joy:
+            return
+        active = self.joy_process is not None and self.joy_process.poll() is None
+        if active and os.path.exists(self.joy_device_active):
+            return
+        if self.joy_process is not None:
+            self.stop_gamepad()
+        device, name = discover_gamepad(self.configured_joy_device)
+        if not device:
+            self.joy_manager_error = (
+                f"等待手柄：{self.configured_joy_device}"
+                if self.configured_joy_device != "auto"
+                else "等待可用的 Xbox/兼容手柄"
+            )
+            return
+        command = [
+            "ros2", "run", "joy_linux", "joy_linux_node",
+            "--ros-args", "-r", "__node:=antbot_real_joy",
+            "-p", f"dev:={device}",
+            "-p", "deadzone:=0.05",
+            "-p", "autorepeat_rate:=20.0",
+            "-p", "sticky_buttons:=false",
+        ]
+        try:
+            self.joy_process = subprocess.Popen(
+                command, start_new_session=True
+            )
+        except OSError as error:
+            self.joy_manager_error = f"手柄驱动启动失败：{error}"
+            return
+        self.joy_device_active = device
+        self.joy_device_name = name
+        self.joy_manager_error = ""
+        self.get_logger().info(f"手柄已连接：{name} ({device})")
 
     def set_teleop_mode(self, request, response):
         self.publish_zero()
@@ -255,6 +398,14 @@ class OperatorManager(Node):
             "joy_publishers": self.count_publishers(
                 str(self.get_parameter("joy_topic").value)
             ),
+            "joy_device": self.joy_device_active,
+            "joy_device_name": self.joy_device_name,
+            "joy_manager_error": self.joy_manager_error,
+            "xbox_armed": self.xbox_armed,
+            "xbox_status": self.xbox_status,
+            "command_vx_mps": self.last_command_vx,
+            "command_vy_mps": self.last_command_vy,
+            "command_wz_rad_s": self.last_command_wz,
             "keyboard_publishers": self.count_publishers(
                 str(self.get_parameter("keyboard_cmd_topic").value)
             ),
@@ -273,6 +424,7 @@ class OperatorManager(Node):
         # the final zero while the ROS context can still accept messages.
         if rclpy.ok(context=self.context):
             self.publish_zero()
+        self.stop_gamepad()
         self.stop_mapping()
         return super().destroy_node()
 

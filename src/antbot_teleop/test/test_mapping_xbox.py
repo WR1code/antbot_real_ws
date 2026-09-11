@@ -68,6 +68,9 @@ def test_triggers_rotate_in_requested_directions():
     assert planar_command(
         0.0, 0.0, 1.0, 1.0, 0.3, 0.5
     )[2] == pytest.approx(0.0)
+    assert planar_command(
+        1.0, -1.0, 1.0, 0.0, 0.3, 0.5
+    ) == pytest.approx((0.0, 0.0, 0.5))
 
 
 def test_deadzone_makes_stick_release_an_immediate_zero():
@@ -86,9 +89,11 @@ def test_node_safety_stop_speed_and_control_switch():
     cmd_vel = RecordingPublisher()
     armed = RecordingPublisher()
     target = RecordingPublisher()
+    status = RecordingPublisher()
     node.cmd_vel_publisher = cmd_vel
     node.armed_publisher = armed
     node.target_publisher = target
+    node.status_publisher = status
     try:
         node._joy_callback(joy())
         node._joy_callback(joy(pressed=[0]))

@@ -254,6 +254,37 @@ static void verify_equivalent_full_turns_align(void)
     assert(fabsf(drive_target(0U) + 0.2f) < 0.001f);
 }
 
+static void verify_diagonal_wire_rounding_is_clamped(void)
+{
+    TranslationSolution solution;
+    unsigned index;
+
+    init_translation_with_safe_drive();
+    /* 1061/1061 mm/s reconstructs to about 1.50048 m/s.  It is a valid
+     * quantized 1.5 m/s command and must not fault after alignment. */
+    assert(ChassisTranslation_CommandVelocity(1.061f, 1.061f));
+    assert(ChassisTranslation_GetLastSolution(&solution));
+    assert(fabsf(fabsf(solution.signed_speed_mps)
+                 - DRIVE_MAX_ABS_SPEED_MPS) < 0.0001f);
+    ChassisTranslation_Task();
+    ChassisTranslation_Task();
+    align_all();
+    ChassisTranslation_Task();
+    s_tick += STEERING_ALIGNMENT_STABLE_MS;
+    assert(ChassisTranslation_CommandVelocity(1.061f, 1.061f));
+    ChassisTranslation_Task();
+    assert(ChassisTranslation_GetState() == CHASSIS_TRANSLATION_DRIVING);
+    for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
+        assert(fabsf(fabsf(drive_target(index))
+                     - DRIVE_MAX_ABS_SPEED_MPS) < 0.0001f);
+    }
+
+    /* Commands genuinely beyond the 1 mm/s quantization allowance are
+     * rejected before steering starts instead of becoming a delayed fault. */
+    assert(!ChassisTranslation_CommandVelocity(1.1f, 1.1f));
+    assert(ChassisTranslation_GetState() == CHASSIS_TRANSLATION_DRIVING);
+}
+
 static void verify_pending_command_timeout(void)
 {
     init_translation_with_safe_drive();
@@ -338,6 +369,44 @@ static void verify_debug_state_tracks_steering_startup(void)
     assert(g_chassis_debug.chassis_state == CHASSIS_STATE_IDLE);
 }
 
+static void verify_point_turn_geometry_and_direction(void)
+{
+    const float expected_speed = 0.5f * CHASSIS_ROTATION_RADIUS_M;
+
+    init_translation_with_safe_drive();
+    assert(ChassisTranslation_CommandTwist(0.0f, 0.0f, 0.5f));
+    assert(ChassisTranslation_GetState()
+           == CHASSIS_TRANSLATION_STOPPING_DRIVE);
+    ChassisTranslation_Task();
+    ChassisTranslation_Task();
+    assert(fabsf(s_motors[0].target_position_rad - 2.35619449f) < 0.001f);
+    assert(fabsf(s_motors[1].target_position_rad - 0.78539816f) < 0.001f);
+    assert(fabsf(s_motors[2].target_position_rad - 0.78539816f) < 0.001f);
+    assert(fabsf(s_motors[3].target_position_rad - 2.35619449f) < 0.001f);
+    align_all();
+    ChassisTranslation_Task();
+    s_tick += STEERING_ALIGNMENT_STABLE_MS;
+    assert(ChassisTranslation_CommandTwist(0.0f, 0.0f, 0.5f));
+    ChassisTranslation_Task();
+    assert(ChassisTranslation_GetState() == CHASSIS_TRANSLATION_DRIVING);
+    assert(fabsf(drive_target(0U) - expected_speed) < 0.001f);
+    assert(fabsf(drive_target(1U) - expected_speed) < 0.001f);
+    assert(fabsf(drive_target(2U) + expected_speed) < 0.001f);
+    assert(fabsf(drive_target(3U) + expected_speed) < 0.001f);
+
+    /* Changing from LT/CCW to RT/CW needs no steering movement; all wheel
+     * velocities reverse immediately. */
+    assert(ChassisTranslation_CommandTwist(0.0f, 0.0f, -0.5f));
+    assert(fabsf(drive_target(0U) + expected_speed) < 0.001f);
+    assert(fabsf(drive_target(1U) + expected_speed) < 0.001f);
+    assert(fabsf(drive_target(2U) - expected_speed) < 0.001f);
+    assert(fabsf(drive_target(3U) - expected_speed) < 0.001f);
+
+    /* Mixed translation/rotation is intentionally not part of this point-
+     * turn control mode. */
+    assert(!ChassisTranslation_CommandTwist(0.1f, 0.0f, 0.5f));
+}
+
 int main(void)
 {
     TranslationSolution solution;
@@ -345,8 +414,10 @@ int main(void)
 
     memset(s_motors, 0, sizeof(s_motors));
     verify_debug_state_tracks_steering_startup();
+    verify_point_turn_geometry_and_direction();
     verify_periodic_refresh_during_alignment();
     verify_equivalent_full_turns_align();
+    verify_diagonal_wire_rounding_is_clamped();
     verify_pending_command_timeout();
     verify_diagonal_tie_keeps_drive_direction();
     init_translation_with_safe_drive();
@@ -354,6 +425,10 @@ int main(void)
     assert(ChassisTranslation_GetState() == CHASSIS_TRANSLATION_DRIVING);
     for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
         assert(fabsf(drive_target(index) + 0.5f) < 0.001f);
+    }
+    assert(ChassisTranslation_CommandDirection(90.0f, 1.5f));
+    for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
+        assert(fabsf(drive_target(index) + 1.5f) < 0.001f);
     }
 
     /* A moving direction change must stop traction before steering. */

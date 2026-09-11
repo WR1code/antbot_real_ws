@@ -13,6 +13,12 @@
 #define CHASSIS_ENABLE_ENDPOINT_APPROXIMATION  0
 #define DIRECTION_ENDPOINT_EPSILON_DEG         0.5f
 
+/* Steering-axis centers form a 330 mm square. */
+#define CHASSIS_WHEELBASE_M                    0.330f
+#define CHASSIS_TRACK_WIDTH_M                  0.330f
+#define CHASSIS_ROTATION_RADIUS_M              0.23334524f
+#define CHASSIS_MAX_ABS_ANGULAR_SPEED_RAD_S    1.0f
+
 typedef enum {
     CHASSIS_TRANSLATION_IDLE = 0,
     CHASSIS_TRANSLATION_STOPPING_DRIVE,
@@ -49,6 +55,8 @@ void ChassisTranslation_Init(void);
 void ChassisTranslation_Task(void);
 bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps);
 bool ChassisTranslation_CommandVelocity(float vx_mps, float vy_mps);
+bool ChassisTranslation_CommandTwist(float vx_mps, float vy_mps,
+                                     float wz_rad_s);
 void ChassisTranslation_Stop(void);
 void ChassisTranslation_EmergencyStop(void);
 bool ChassisTranslation_IsMoving(void);

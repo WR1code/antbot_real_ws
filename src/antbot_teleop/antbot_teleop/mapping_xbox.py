@@ -1,5 +1,6 @@
 """Safe Xbox teleoperation for ANTBot SLAM mapping."""
 
+import json
 import signal
 import subprocess
 import time
@@ -16,6 +17,7 @@ from rclpy.signals import SignalHandlerOptions
 from sensor_msgs.msg import Joy
 
 from std_msgs.msg import Bool, String
+from std_srvs.srv import Trigger
 
 
 CONTROL_BASE = 'base'
@@ -35,10 +37,16 @@ def trigger_amount(raw, deadzone):
 
 def planar_command(left_x, left_y, lt, rt, linear_speed, angular_speed):
     """Return ROS body-frame vx, vy and wz for the measured Xbox mapping."""
+    wz = (lt - rt) * angular_speed
+    if abs(wz) > 0.0:
+        # A trigger requests a true point turn. Giving rotation priority also
+        # prevents accidental mixed motion when the left stick is not exactly
+        # centered.
+        return (0.0, 0.0, wz)
     return (
         -left_y * linear_speed,
         left_x * linear_speed,
-        (lt - rt) * angular_speed,
+        0.0,
     )
 
 
@@ -112,11 +120,26 @@ class MappingXbox(Node):
             str(self.get_parameter('topics.control_target').value),
             state_qos,
         )
+        self.status_publisher = self.create_publisher(
+            String,
+            str(self.get_parameter('topics.status').value),
+            state_qos,
+        )
         self.joy_subscription = self.create_subscription(
             Joy,
             str(self.get_parameter('topics.joy').value),
             self._joy_callback,
             20,
+        )
+        self.speed_down_service = self.create_service(
+            Trigger,
+            str(self.get_parameter('topics.speed_down_service').value),
+            self._speed_down_service,
+        )
+        self.speed_up_service = self.create_service(
+            Trigger,
+            str(self.get_parameter('topics.speed_up_service').value),
+            self._speed_up_service,
         )
 
         self.control_target = CONTROL_BASE
@@ -131,6 +154,7 @@ class MappingXbox(Node):
         self._stop_requested = False
         self.timer = self.create_timer(
             1.0 / self.publish_rate, self._timer_callback)
+        self.status_timer = self.create_timer(0.2, self._publish_status)
 
         self._publish_target()
         self._publish_armed()
@@ -152,11 +176,11 @@ class MappingXbox(Node):
         self.declare_parameter('buttons.speed_up', 10)
         self.declare_parameter('deadzone', 0.10)
         self.declare_parameter('trigger_deadzone', 0.05)
-        self.declare_parameter('joy_timeout', 0.30)
+        self.declare_parameter('joy_timeout', 0.50)
         self.declare_parameter('publish_rate', 20.0)
-        self.declare_parameter('max_linear_vel', 0.60)
+        self.declare_parameter('max_linear_vel', 1.50)
         self.declare_parameter('max_angular_vel', 1.00)
-        self.declare_parameter('speed_levels', [0.25, 0.50, 1.00])
+        self.declare_parameter('speed_levels', [0.10, 0.25, 0.50, 0.75, 1.00])
         self.declare_parameter('initial_speed_level', 1)
         self.declare_parameter('map_prefix', default_map)
         self.declare_parameter('map_use_sim_time', True)
@@ -164,6 +188,11 @@ class MappingXbox(Node):
         self.declare_parameter('topics.joy', '/joy')
         self.declare_parameter('topics.cmd_vel', '/cmd_vel')
         self.declare_parameter('topics.armed', '/antbot_xbox/armed')
+        self.declare_parameter('topics.status', '/antbot_xbox/status')
+        self.declare_parameter(
+            'topics.speed_down_service', '/antbot_xbox/speed_down')
+        self.declare_parameter(
+            'topics.speed_up_service', '/antbot_xbox/speed_up')
         self.declare_parameter(
             'topics.control_target', '/xbox/control_target')
 
@@ -262,16 +291,9 @@ class MappingXbox(Node):
             self.triggers_blocked_until_release = False
 
         if base_selected and self._rising_edge(msg, 'speed_down'):
-            old_index = self.speed_index
-            self.speed_index = max(0, self.speed_index - 1)
-            if self.speed_index != old_index:
-                self._log_speed()
+            self._change_speed(-1)
         if base_selected and self._rising_edge(msg, 'speed_up'):
-            old_index = self.speed_index
-            self.speed_index = min(
-                len(self.speed_levels) - 1, self.speed_index + 1)
-            if self.speed_index != old_index:
-                self._log_speed()
+            self._change_speed(1)
 
         if base_selected and self._rising_edge(msg, 'save_map'):
             self.save_map()
@@ -318,9 +340,63 @@ class MappingXbox(Node):
     def _publish_target(self):
         self.target_publisher.publish(String(data=self.control_target))
 
+    def _publish_status(self):
+        age = (
+            self.get_clock().now() - self.last_joy_time
+        ).nanoseconds / 1_000_000_000.0
+        message = String()
+        message.data = json.dumps({
+            'armed': self.armed,
+            'joy_seen': self.joy_seen,
+            'input_fresh': self.joy_seen and age <= self.joy_timeout,
+            'control_target': self.control_target,
+            'speed_level': self.speed_index + 1,
+            'speed_level_count': len(self.speed_levels),
+            'speed_ratio': self.speed_levels[self.speed_index],
+            'speed_limit_mps': (
+                self.max_linear * self.speed_levels[self.speed_index]
+            ),
+            'max_linear_mps': self.max_linear,
+        }, separators=(',', ':'))
+        self.status_publisher.publish(message)
+
     def _log_speed(self):
         percentage = round(self.speed_levels[self.speed_index] * 100)
-        self.get_logger().info(f'[ANTBOT XBOX] SPEED: {percentage}%')
+        limit = self.max_linear * self.speed_levels[self.speed_index]
+        self.get_logger().info(
+            f'[ANTBOT XBOX] SPEED: {self.speed_index + 1}/'
+            f'{len(self.speed_levels)} · {percentage}% · {limit:.3f} m/s')
+        self._publish_status()
+
+    def _change_speed(self, step):
+        old_index = self.speed_index
+        self.speed_index = max(
+            0, min(self.speed_index + step, len(self.speed_levels) - 1))
+        if self.speed_index != old_index:
+            self._log_speed()
+            return True
+        self._publish_status()
+        return False
+
+    def _speed_down_service(self, _request, response):
+        changed = self._change_speed(-1)
+        response.success = True
+        response.message = (
+            f"速度档 {self.speed_index + 1}/{len(self.speed_levels)} · "
+            f"{self.max_linear * self.speed_levels[self.speed_index]:.3f} m/s"
+            + ("" if changed else "（已是最低档）")
+        )
+        return response
+
+    def _speed_up_service(self, _request, response):
+        changed = self._change_speed(1)
+        response.success = True
+        response.message = (
+            f"速度档 {self.speed_index + 1}/{len(self.speed_levels)} · "
+            f"{self.max_linear * self.speed_levels[self.speed_index]:.3f} m/s"
+            + ("" if changed else "（已是最高档）")
+        )
+        return response
 
     def _timer_callback(self):
         if self.joy_seen and not self.joystick_timed_out:

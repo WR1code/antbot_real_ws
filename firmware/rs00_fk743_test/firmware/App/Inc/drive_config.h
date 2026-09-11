@@ -31,10 +31,12 @@
 #define DRIVE_MOTOR_PEAK_CURRENT_A        17.0f
 #define DRIVE_CONTROLLER_CONT_CURRENT_A   4.0f
 #define DRIVE_CONTROLLER_MAX_CURRENT_A    8.0f
-#define DRIVE_MOTOR_MAX_ERPM              12400
+#define DRIVE_MOTOR_MAX_ERPM              10000
 
-/* Conservative first lift-off-ground limits. */
-#define DRIVE_MAX_ABS_SPEED_MPS          0.50f
+/* Chassis command limit. 1.50 m/s is about 2728 erpm with the parameters
+ * above, safely below both the 3000 erpm feedback guard and the drive's
+ * configured 10000 erpm absolute limit. */
+#define DRIVE_MAX_ABS_SPEED_MPS          1.50f
 #define DRIVE_ACCELERATION_MPS2          0.20f
 #define DRIVE_DECELERATION_MPS2          0.30f
 /* Written in the OIDelec PC tool; it is not set by a CAN motion command. */
@@ -81,7 +83,7 @@
 /* Installed traction bus is nominally 48 V (verified from MINI feedback). */
 #define DRIVE_MIN_FEEDBACK_VOLTAGE_V         36
 #define DRIVE_MAX_FEEDBACK_VOLTAGE_V         60
-#define DRIVE_MAX_FEEDBACK_SPEED_ERPM      1500
+#define DRIVE_MAX_FEEDBACK_SPEED_ERPM      3000
 #define DRIVE_SAFE_MAX_ACCELERATION_ERPM_S 1000
 #define DRIVE_SAFE_MAX_DECELERATION_ERPM_S 1500
 

@@ -1,15 +1,17 @@
 """Pure safety-gate tests for the H743 ROS bridge."""
 
 import math
+from types import SimpleNamespace
 
 import pytest
 
 from antbot_h743_bridge.bridge import (
+    CmdVelUartBridge,
     JOINT_NAMES,
     ack_is_motion_ready,
     joint_positions_from_feedback,
 )
-from antbot_h743_bridge.chassis_uart_protocol import Ack
+from antbot_h743_bridge.chassis_uart_protocol import Ack, CONTROL_IDS
 
 
 def ack(*, flags=0x04, faults=0):
@@ -66,3 +68,32 @@ def test_joint_positions_follow_real_steering_and_drive_feedback():
     assert positions[5] == pytest.approx(2 * math.pi)
     assert positions[6] == pytest.approx(0.25)  # invalid steering keeps last value
     assert positions[7] == pytest.approx(0.25)  # invalid drive keeps last value
+
+
+def test_system_reset_locks_motion_and_sends_guarded_command():
+    bridge = object.__new__(CmdVelUartBridge)
+    bridge.operator_requested = True
+    bridge.serial = object()
+    bridge.latest_ack = ack()
+    bridge.last_ack_monotonic = 123.0
+    bridge.feedback = {2: ack()}
+    calls = []
+    bridge.send_stop_frames = lambda: calls.append(("stop",))
+    bridge.send_control = lambda command, payload=b"": (
+        calls.append((command, payload)) or True
+    )
+    bridge.publish_status = lambda: calls.append(("status",))
+    response = SimpleNamespace(success=False, message="")
+
+    result = bridge.reset_system(None, response)
+
+    assert result is response
+    assert response.success
+    assert bridge.operator_requested is False
+    assert bridge.latest_ack is None
+    assert bridge.last_ack_monotonic == 0.0
+    assert bridge.feedback == {}
+    assert calls[:2] == [
+        ("stop",),
+        (CONTROL_IDS["SYSTEM_RESET"], b"RST!"),
+    ]

@@ -99,6 +99,10 @@ class CmdVelUartBridge(Node):
         if not all(math.isfinite(value) for value in (vx, vy, wz)):
             self.get_logger().error("discarded non-finite cmd_vel")
             return
+        if abs(wz) > 1.0e-6:
+            vx = 0.0
+            vy = 0.0
+            wz = max(-1.0, min(1.0, wz))
 
         magnitude = math.hypot(vx, vy)
         if magnitude > self.max_linear_speed and magnitude > 0.0:

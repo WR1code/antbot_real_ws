@@ -178,6 +178,12 @@ int main(void)
         assert(DriveController_GetSafetyFlags(DRIVE_WHEEL_FR) == 0U);
     }
 
+    /* The production 1.50 m/s command is valid (~2728 erpm), while values
+     * beyond the configured chassis boundary remain rejected. */
+    assert(DriveController_SetAllWheelSpeeds(
+        1.50f, -1.50f, 1.50f, -1.50f));
+    assert(!DriveController_SetAllWheelSpeeds(
+        1.501f, -1.501f, 1.501f, -1.501f));
     assert(DriveController_SetAllWheelSpeeds(0.1f, -0.1f, 0.1f, -0.1f));
     for (index = 0U; index < 4U; ++index) {
         run_one_tx();

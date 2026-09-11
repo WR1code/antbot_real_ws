@@ -1,6 +1,7 @@
 #include "chassis_translation_controller.h"
 
 #include "drive_controller.h"
+#include "drive_config.h"
 #include "chassis_debug.h"
 #include "rs00_stm32_fdcan.h"
 #include "steering_config.h"
@@ -15,6 +16,16 @@
 #define TWO_PI_RAD 6.28318530717958647692f
 #define PI_RAD 3.14159265358979323846f
 #define PATH_TIE_EPSILON_RAD 0.001f
+/* Each host velocity component has 1 mm/s wire resolution.  The worst-case
+ * two-axis rounding increase is below 0.001 m/s. */
+#define COMMAND_QUANTIZATION_TOLERANCE_MPS 0.001f
+#define ANGULAR_QUANTIZATION_TOLERANCE_RAD_S 0.001f
+
+typedef enum {
+    CHASSIS_MOTION_NONE = 0,
+    CHASSIS_MOTION_TRANSLATION,
+    CHASSIS_MOTION_ROTATION
+} ChassisMotionMode;
 
 enum {
     CHASSIS_ERROR_NONE = 0,
@@ -26,7 +37,8 @@ enum {
 /*
  * Array order is fixed: FL/左上, FR/右上, RL/左下, RR/右下.
  * RS00 IDs are 1/2/3/4; matching MINI drive IDs are 5/6/7/8.
- * TODO: lift the chassis and calibrate every traction motor's forward sign.
+ * All four installed MINI drives use the same positive-rotation convention,
+ * as verified with the vendor commissioning software.
  */
 static const int8_t s_drive_install_sign[DRIVE_WHEEL_COUNT] =
     {1, 1, 1, 1};
@@ -39,6 +51,9 @@ static bool s_command_pending;
 static uint32_t s_alignment_stable_tick;
 static bool s_alignment_timing;
 static bool s_auto_enable_requested;
+static ChassisMotionMode s_motion_mode;
+static float s_steering_target_rad[STEERING_MOTOR_COUNT];
+static float s_drive_command_mps[DRIVE_WHEEL_COUNT];
 
 static ChassisDebugState debug_state_for(ChassisTranslationState state)
 {
@@ -184,12 +199,13 @@ static void optimize_steering_path(TranslationSolution *next)
     next->steering_angle_deg = next->steering_angle_rad * RAD_TO_DEG;
 }
 
-static bool command_drive(float signed_speed_mps)
+static bool command_drive_targets(void)
 {
     float wheel[DRIVE_WHEEL_COUNT];
     unsigned index;
     for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
-        wheel[index] = signed_speed_mps * (float)s_drive_install_sign[index];
+        wheel[index] = s_drive_command_mps[index]
+                       * (float)s_drive_install_sign[index];
     }
     if (!DriveController_SetAllWheelSpeeds(
             wheel[0], wheel[1], wheel[2], wheel[3])) {
@@ -209,6 +225,9 @@ void ChassisTranslation_Init(void)
     s_command_pending = false;
     s_alignment_timing = false;
     s_auto_enable_requested = false;
+    s_motion_mode = CHASSIS_MOTION_NONE;
+    memset(s_steering_target_rad, 0, sizeof(s_steering_target_rad));
+    memset(s_drive_command_mps, 0, sizeof(s_drive_command_mps));
     (void)DriveController_Init();
     set_state(CHASSIS_TRANSLATION_IDLE);
 }
@@ -217,7 +236,18 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
 {
     TranslationSolution next;
     const uint32_t now = HAL_GetTick();
+    const float requested_magnitude = fabsf(speed_mps);
     bool same_requested_direction;
+
+    if (!isfinite(speed_mps)
+        || (requested_magnitude
+            > DRIVE_MAX_ABS_SPEED_MPS
+              + COMMAND_QUANTIZATION_TOLERANCE_MPS)) {
+        return false;
+    }
+    if (requested_magnitude > DRIVE_MAX_ABS_SPEED_MPS) {
+        speed_mps = copysignf(DRIVE_MAX_ABS_SPEED_MPS, speed_mps);
+    }
 
     if ((s_state == CHASSIS_TRANSLATION_FAULT)
         || !SteeringController_IsCalibrationConfirmed()
@@ -248,16 +278,22 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
      * will be applied after alignment. In DRIVING it can be applied at once.
      */
     if (same_requested_direction
-        && (s_state != CHASSIS_TRANSLATION_IDLE)) {
+        && (s_motion_mode == CHASSIS_MOTION_TRANSLATION)
+        && (s_state != CHASSIS_TRANSLATION_IDLE)
+        && (s_state != CHASSIS_TRANSLATION_TIMEOUT_STOP)) {
         const float magnitude = fabsf(speed_mps);
+        unsigned index;
         s_solution.signed_speed_mps =
             (magnitude == 0.0f)
                 ? 0.0f
                 : magnitude * (float)s_solution.drive_direction;
         s_debug.requested_speed_mps = speed_mps;
         s_debug.signed_speed_mps = s_solution.signed_speed_mps;
+        for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
+            s_drive_command_mps[index] = s_solution.signed_speed_mps;
+        }
         if (s_state == CHASSIS_TRANSLATION_DRIVING) {
-            return command_drive(s_solution.signed_speed_mps);
+            return command_drive_targets();
         }
         return true;
     }
@@ -265,6 +301,14 @@ bool ChassisTranslation_CommandDirection(float direction_deg, float speed_mps)
     optimize_steering_path(&next);
     s_solution = next;
     s_have_solution = true;
+    s_motion_mode = CHASSIS_MOTION_TRANSLATION;
+    {
+        unsigned index;
+        for (index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
+            s_steering_target_rad[index] = next.steering_angle_rad;
+            s_drive_command_mps[index] = next.signed_speed_mps;
+        }
+    }
     s_command_pending = true;
     s_debug.normalized_direction_deg = next.normalized_direction_deg;
     s_debug.signed_speed_mps = next.signed_speed_mps;
@@ -289,6 +333,77 @@ bool ChassisTranslation_CommandVelocity(float vx_mps, float vy_mps)
     }
     direction = atan2f(vy_mps, vx_mps) * RAD_TO_DEG;
     return ChassisTranslation_CommandDirection(direction, speed);
+}
+
+static bool command_rotation(float wz_rad_s)
+{
+    static const float steering[STEERING_MOTOR_COUNT] = {
+        2.35619449019f, 0.78539816339f,
+        0.78539816339f, 2.35619449019f
+    };
+    static const int8_t tangent_sign[DRIVE_WHEEL_COUNT] = {1, 1, -1, -1};
+    const float magnitude = fabsf(wz_rad_s);
+    float wheel_speed;
+    const uint32_t now = HAL_GetTick();
+    unsigned index;
+
+    if (!isfinite(wz_rad_s)
+        || magnitude > (CHASSIS_MAX_ABS_ANGULAR_SPEED_RAD_S
+                        + ANGULAR_QUANTIZATION_TOLERANCE_RAD_S)
+        || (s_state == CHASSIS_TRANSLATION_FAULT)
+        || !SteeringController_IsCalibrationConfirmed()
+        || !DriveController_IsSafetyFeedbackReady()) {
+        return false;
+    }
+    if (magnitude > CHASSIS_MAX_ABS_ANGULAR_SPEED_RAD_S) {
+        wz_rad_s = copysignf(CHASSIS_MAX_ABS_ANGULAR_SPEED_RAD_S, wz_rad_s);
+    }
+    wheel_speed = wz_rad_s * CHASSIS_ROTATION_RADIUS_M;
+
+    s_debug.requested_direction_deg = 0.0f;
+    s_debug.requested_speed_mps = wheel_speed;
+    s_debug.signed_speed_mps = wheel_speed;
+    s_debug.last_command_tick = now;
+    for (index = 0U; index < STEERING_MOTOR_COUNT; ++index) {
+        s_steering_target_rad[index] = steering[index];
+        s_drive_command_mps[index] =
+            wheel_speed * (float)tangent_sign[index];
+    }
+
+    if ((s_motion_mode == CHASSIS_MOTION_ROTATION)
+        && (s_state != CHASSIS_TRANSLATION_IDLE)
+        && (s_state != CHASSIS_TRANSLATION_TIMEOUT_STOP)) {
+        if (s_state == CHASSIS_TRANSLATION_DRIVING) {
+            return command_drive_targets();
+        }
+        return true;
+    }
+
+    s_motion_mode = CHASSIS_MOTION_ROTATION;
+    s_command_pending = true;
+    DriveController_StopAll();
+    set_state(CHASSIS_TRANSLATION_STOPPING_DRIVE);
+    return true;
+}
+
+bool ChassisTranslation_CommandTwist(float vx_mps, float vy_mps,
+                                     float wz_rad_s)
+{
+    const float linear_speed = sqrtf((vx_mps * vx_mps)
+                                     + (vy_mps * vy_mps));
+    if (!isfinite(vx_mps) || !isfinite(vy_mps) || !isfinite(wz_rad_s)) {
+        return false;
+    }
+    if (fabsf(wz_rad_s) >= ANGULAR_QUANTIZATION_TOLERANCE_RAD_S) {
+        /* The Xbox mapping gives triggers priority, so angular commands are
+         * always true point turns. Reject ambiguous mixed commands from any
+         * other publisher instead of producing an unexpected trajectory. */
+        if (linear_speed >= CHASSIS_SPEED_DEADBAND_MPS) {
+            return false;
+        }
+        return command_rotation(wz_rad_s);
+    }
+    return ChassisTranslation_CommandVelocity(vx_mps, vy_mps);
 }
 
 static bool update_alignment(void)
@@ -329,8 +444,9 @@ static bool update_alignment(void)
 
 static void start_steering(void)
 {
-    const float angle = s_solution.steering_angle_rad;
-    if (!SteeringController_SetAllAngles(angle, angle, angle, angle)) {
+    if (!SteeringController_SetAllAngles(
+            s_steering_target_rad[0], s_steering_target_rad[1],
+            s_steering_target_rad[2], s_steering_target_rad[3])) {
         enter_fault(CHASSIS_ERROR_STEERING, g_steering_debug_fault_motor_id);
         return;
     }
@@ -440,11 +556,17 @@ void ChassisTranslation_Task(void)
                 s_alignment_stable_tick = now;
             } else if (elapsed_ms(now, s_alignment_stable_tick)
                        >= STEERING_ALIGNMENT_STABLE_MS) {
-                if (fabsf(s_solution.signed_speed_mps)
-                    < CHASSIS_SPEED_DEADBAND_MPS) {
+                bool any_motion = false;
+                unsigned index;
+                for (index = 0U; index < DRIVE_WHEEL_COUNT; ++index) {
+                    any_motion = any_motion
+                                 || (fabsf(s_drive_command_mps[index])
+                                     >= CHASSIS_SPEED_DEADBAND_MPS);
+                }
+                if (!any_motion) {
                     DriveController_StopAll();
                     set_state(CHASSIS_TRANSLATION_IDLE);
-                } else if (!command_drive(s_solution.signed_speed_mps)) {
+                } else if (!command_drive_targets()) {
                     enter_fault(CHASSIS_ERROR_DRIVE, 0U);
                 } else {
                     set_state(CHASSIS_TRANSLATION_DRIVING);

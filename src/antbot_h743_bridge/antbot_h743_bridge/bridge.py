@@ -11,7 +11,7 @@ from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import BatteryState, JointState
 import serial
 from std_msgs.msg import String
-from std_srvs.srv import SetBool
+from std_srvs.srv import SetBool, Trigger
 
 from .chassis_uart_protocol import (
     ACK_POSITION_INVALID,
@@ -104,6 +104,9 @@ class CmdVelUartBridge(Node):
         self.declare_parameter(
             "operator_enable_service", "/antbot/operator_enable"
         )
+        self.declare_parameter(
+            "system_reset_service", "/antbot/system_reset"
+        )
 
         self.port = str(self.get_parameter("port").value)
         self.baud = int(self.get_parameter("baud").value)
@@ -185,6 +188,11 @@ class CmdVelUartBridge(Node):
             SetBool,
             str(self.get_parameter("operator_enable_service").value),
             self.set_operator_enabled,
+        )
+        self.system_reset_service = self.create_service(
+            Trigger,
+            str(self.get_parameter("system_reset_service").value),
+            self.reset_system,
         )
         self.serial_timer = self.create_timer(0.02, self.poll_serial)
         self.telemetry_timer = self.create_timer(
@@ -303,6 +311,33 @@ class CmdVelUartBridge(Node):
         self.publish_status()
         return response
 
+    def reset_system(self, _request, response):
+        """Lock motion and request a guarded H743 system reset."""
+        self.operator_requested = False
+        if self.serial is None:
+            response.success = False
+            response.message = "H743 未连接，RESET 未发送"
+            self.publish_status()
+            return response
+
+        self.send_stop_frames()
+        if self.serial is None or not self.send_control(
+            CONTROL_IDS["SYSTEM_RESET"], b"RST!"
+        ):
+            response.success = False
+            response.message = "RESET 指令发送失败，安全门禁保持锁定"
+            self.publish_status()
+            return response
+
+        self.latest_ack = None
+        self.last_ack_monotonic = 0.0
+        self.feedback.clear()
+        self.ack_parser = AckStreamParser()
+        response.success = True
+        response.message = "RESET 已发送，安全门禁已锁定；正在等待 H743 重启"
+        self.publish_status()
+        return response
+
     def motion_allowed(self) -> bool:
         """Require both the RViz gate and fault-free H743 readiness."""
         telemetry_fresh = (
@@ -325,20 +360,20 @@ class CmdVelUartBridge(Node):
             return
 
         if abs(wz) > 1.0e-6:
-            self.get_logger().warning(
-                "angular.z ignored: this H743 firmware is translation-only",
-                throttle_duration_sec=1.0,
-            )
-        wz = 0.0
+            vx = 0.0
+            vy = 0.0
+            wz = max(-1.0, min(1.0, wz))
 
         if not self.motion_allowed():
-            if abs(vx) > 1.0e-6 or abs(vy) > 1.0e-6:
+            if (abs(vx) > 1.0e-6 or abs(vy) > 1.0e-6
+                    or abs(wz) > 1.0e-6):
                 self.get_logger().warning(
                     "motion command blocked: operator/H743 safety gate is locked",
                     throttle_duration_sec=1.0,
                 )
             vx = 0.0
             vy = 0.0
+            wz = 0.0
 
         magnitude = math.hypot(vx, vy)
         if magnitude > self.max_linear_speed and magnitude > 0.0:

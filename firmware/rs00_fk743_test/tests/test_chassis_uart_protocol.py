@@ -1,4 +1,6 @@
+import math
 import pathlib
+import struct
 import sys
 import unittest
 
@@ -37,6 +39,17 @@ class ProtocolTests(unittest.TestCase):
         vx, vy = limit_linear_velocity(3.0, 4.0, 0.5)
         self.assertAlmostEqual(vx, 0.3)
         self.assertAlmostEqual(vy, 0.4)
+
+    def test_diagonal_limit_remains_safe_after_wire_quantization(self):
+        vx, vy = limit_linear_velocity(1.5, 1.5, 1.5)
+        frame = encode_cmd_vel(0, vx, vy, 0.0)
+        vx_mm_s, vy_mm_s = struct.unpack_from("<hh", frame, 4)
+        self.assertEqual((vx_mm_s, vy_mm_s), (1060, 1060))
+        self.assertLessEqual(math.hypot(vx_mm_s, vy_mm_s), 1500.0)
+
+        vx, vy = limit_linear_velocity(1.5, 0.0, 1.5)
+        frame = encode_cmd_vel(0, vx, vy, 0.0)
+        self.assertEqual(struct.unpack_from("<hh", frame, 4), (1500, 0))
 
     def test_nonzero_angular_is_encoded_for_firmware_rejection(self):
         self.assertEqual(encode_cmd_vel(0, 0, 0, 0.1)[8:10], b"\x64\x00")

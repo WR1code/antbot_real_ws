@@ -108,7 +108,23 @@ def limit_linear_velocity(vx: float, vy: float, maximum: float) -> tuple[float, 
     magnitude = math.hypot(vx, vy)
     if magnitude > maximum:
         scale = maximum / magnitude
-        return vx * scale, vy * scale
+        vx *= scale
+        vy *= scale
+
+    # vx/vy are transmitted as integer millimetres per second.  Rounding
+    # both components can increase their vector magnitude (for example a
+    # 1.5 m/s 45-degree command becomes 1061/1061 mm/s = 1.50048 m/s).
+    # If that happens, move the integer components toward zero so the value
+    # reconstructed by the firmware remains inside the configured limit.
+    vx_mm_s = round(vx * 1000.0)
+    vy_mm_s = round(vy * 1000.0)
+    quantized_magnitude = math.hypot(vx_mm_s, vy_mm_s)
+    maximum_mm_s = maximum * 1000.0
+    if quantized_magnitude > maximum_mm_s:
+        scale = maximum_mm_s / quantized_magnitude
+        vx_mm_s = math.trunc(vx_mm_s * scale)
+        vy_mm_s = math.trunc(vy_mm_s * scale)
+        return vx_mm_s / 1000.0, vy_mm_s / 1000.0
     return vx, vy
 
 

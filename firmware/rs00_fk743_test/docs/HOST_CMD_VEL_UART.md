@@ -6,7 +6,7 @@
 /cmd_vel (geometry_msgs/Twist)
  -> ros2_cmd_vel_uart.py
  -> USB-TTL / USART1, 115200 8N1
- -> ChassisTranslation_CommandVelocity(vx, vy)
+ -> ChassisTranslation_CommandTwist(vx, vy, wz)
  -> FDCAN1 / 1 Mbit/s -> 四台 RS00（ID 1/2/3/4）
  -> FDCAN2 / 500 kbit/s -> 四台 MINI（ID 5/6/7/8）
 ```
@@ -14,11 +14,16 @@
 两条总线均使用同一物理顺序：左上/FL、右上/FR、左下/RL、右下/RR；对应
 RS00 ID `1/2/3/4`、MINI ID `5/6/7/8`。
 
-当前底盘控制器只实现纯平移：
+当前底盘控制器支持平移和原地旋转：
 
 - `linear.x`：前后速度，单位 `m/s`
 - `linear.y`：左右速度，单位 `m/s`
-- `angular.z`：尚不支持；非零命令会让 STM32 停止行走并拒绝该帧
+- `angular.z`：正值逆时针、负值顺时针，范围 `-1.0～1.0 rad/s`
+
+四个转向轴中心位于 `330 mm × 330 mm` 正方形顶点，旋转半径为
+`330/sqrt(2) = 233.35 mm`。原地旋转时逻辑转向角为
+FL/RR=`135°`、FR/RL=`45°`，后轮行走方向与前轮相反。为避免误操作，非零
+`angular.z` 优先于手柄平移；STM32 对其他来源的平移与旋转混合帧会拒绝并停车。
 
 ROS `base_link` 的 `x` 向前、`y` 向左，与本工程约定一致。
 
@@ -118,8 +123,9 @@ cd /home/w/project/rs00_fk743_test
 默认最大速度为 `0.25 m/s`，可用 `RS00_MAX_LINEAR_SPEED` 调整；串口和手柄设备
 可分别用 `RS00_UART_PORT`、`RS00_JOY_DEVICE` 覆盖。该入口不会启动 AntBot 原有的
 `controller.launch.py`/`antbot_hw_interface`，避免两个底盘执行端同时消费
-`/cmd_vel`。当前固件只支持纯平移，因此入口把 Xbox 的 LT/RT 角速度设为零；
-左摇杆、A 键安全锁和 0.3 秒手柄掉线锁定仍沿用 AntBot 逻辑。
+`/cmd_vel`。Xbox 的 LT 触发器控制逆时针原地旋转，RT 控制顺时针原地旋转；
+触发器有输入时旋转优先并把平移置零。左摇杆、A 键安全锁和手柄掉线锁定仍沿用
+AntBot 逻辑。
 
 同一个 UART 不能同时被该入口、`control_tool.py`、`uart_debug_tool.py` 或串口助手
 打开。需要查询或重新使能时，先退出 Xbox 控制入口。
@@ -137,13 +143,13 @@ USART1中断只把字节放进环形缓冲区；解析和底盘命令调用在�
 可以在调试器中调用 `HostCmdVelUart_GetDebugSnapshot()` 查看：
 
 - 已接受命令数
-- 非零角速度拒绝数
+- 无效或混合角速度拒绝数
 - 超范围运动命令拒绝数
 - UART溢出/错误数
 - CRC错误数及最后序号
 
-首次测试必须架空四轮，保持 `angular.z=0`，并把最大线速度限制在
-`0.03～0.05 m/s`。
+首次旋转测试必须架空四轮，从轻压 LT/RT 开始，并确认 LT 为逆时针、RT 为顺时针；
+首次平移测试仍应把最大线速度限制在 `0.03～0.05 m/s`。
 
 完整解锁条件和逐项验收见
 [安全接线、标定与长期运行验收手册](SAFETY_COMMISSIONING_AND_WIRING.md)。

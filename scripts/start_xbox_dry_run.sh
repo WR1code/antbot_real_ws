@@ -18,6 +18,6 @@ exec ros2 launch antbot_teleop mapping_xbox.launch.py \
   start_joy:=true \
   joy_device:="${joy_device}" \
   use_sim_time:=false \
-  max_linear_speed:=0.10 \
-  max_angular_speed:=0.0 \
+  max_linear_speed:=1.50 \
+  max_angular_speed:=1.0 \
   "$@"

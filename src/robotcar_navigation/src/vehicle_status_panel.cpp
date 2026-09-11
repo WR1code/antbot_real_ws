@@ -9,10 +9,12 @@
 
 #include <QFont>
 #include <QFrame>
+#include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QGridLayout>
 #include <QGroupBox>
+#include <QHeaderView>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QKeyEvent>
@@ -25,7 +27,9 @@
 #include <QScrollArea>
 #include <QSizePolicy>
 #include <QStackedWidget>
+#include <QStringList>
 #include <QTabWidget>
+#include <QTableWidget>
 #include <QTimer>
 #include <QTreeWidget>
 #include <QTreeWidgetItem>
@@ -109,6 +113,43 @@ QString compactJson(const QJsonValue & value)
   return QString();
 }
 
+QString arrayValue(
+  const QJsonObject & object, const QString & key, int index,
+  int decimals = 1, const QString & suffix = QString())
+{
+  const auto array = object.value(key).toArray();
+  if (index < 0 || index >= array.size() || !array.at(index).isDouble()) {
+    return QStringLiteral("--");
+  }
+  return QStringLiteral("%1%2").arg(array.at(index).toDouble(), 0, 'f', decimals).arg(suffix);
+}
+
+QString faultFlagsText(int flags)
+{
+  if (flags == 0) {
+    return QObject::tr("无故障");
+  }
+  QStringList names;
+  if (flags & 0x01) {names << QObject::tr("转向");}
+  if (flags & 0x02) {names << QObject::tr("行走");}
+  if (flags & 0x04) {names << QObject::tr("CAN");}
+  if (flags & 0x08) {names << QObject::tr("CAN Bus-Off");}
+  if (flags & 0x10) {names << QObject::tr("串口");}
+  return QObject::tr("0x%1 · %2")
+         .arg(flags, 4, 16, QLatin1Char('0')).arg(names.join(QObject::tr("、")));
+}
+
+void setTableValue(QTableWidget * table, int row, int column, const QString & value)
+{
+  auto * item = table->item(row, column);
+  if (!item) {
+    item = new QTableWidgetItem();
+    table->setItem(row, column, item);
+  }
+  item->setText(value);
+  item->setTextAlignment(Qt::AlignCenter);
+}
+
 void appendStatusTree(
   QTreeWidget * tree, QTreeWidgetItem * parent,
   const QString & key, const QJsonValue & value)
@@ -174,8 +215,13 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   safety_stop_button_ = new QPushButton(tr("停止并锁定"), safety_box);
   safety_stop_button_->setStyleSheet(
     QStringLiteral("QPushButton { background: #c62828; color: white; padding: 8px; }"));
+  system_reset_button_ = new QPushButton(tr("RESET"), safety_box);
+  system_reset_button_->setToolTip(tr("锁定运动并重新启动 H743 底盘控制器"));
+  system_reset_button_->setStyleSheet(QStringLiteral(
+    "QPushButton { background: #ef6c00; color: white; padding: 8px; font-weight: bold; }"));
   safety_buttons->addWidget(safety_enable_button_);
   safety_buttons->addWidget(safety_stop_button_);
+  safety_buttons->addWidget(system_reset_button_);
   safety_layout->addWidget(hardware_status_);
   safety_layout->addLayout(safety_buttons);
   root->addWidget(safety_box);
@@ -185,6 +231,9 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   connect(
     safety_stop_button_, &QPushButton::clicked,
     this, &VehicleStatusPanel::requestSafetyStop);
+  connect(
+    system_reset_button_, &QPushButton::clicked,
+    this, &VehicleStatusPanel::requestSystemReset);
 
   auto * intent_box = new QGroupBox(tr("机器人动作意图"), this);
   auto * intent_layout = new QVBoxLayout(intent_box);
@@ -222,8 +271,14 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   speed_layout->addWidget(odometry_status_, 4, 0, 1, 2);
   root->addWidget(speed_box);
 
-  auto * state_box = new QGroupBox(tr("小车状态与扩展参数"), this);
+  auto * state_box = new QGroupBox(tr("底盘实时状态"), this);
   auto * state_layout = new QVBoxLayout(state_box);
+  chassis_summary_ = new QLabel(tr("等待底盘遥测…"), state_box);
+  chassis_summary_->setAlignment(Qt::AlignCenter);
+  chassis_summary_->setMinimumHeight(44);
+  chassis_summary_->setStyleSheet(QStringLiteral(
+    "QLabel { color: #37474f; background: #eceff1; border: 1px solid #cfd8dc; "
+    "border-radius: 7px; padding: 8px; font-weight: bold; }"));
   battery_bar_ = new QProgressBar(state_box);
   battery_bar_->setRange(0, 100);
   battery_bar_->setValue(0);
@@ -231,15 +286,85 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   battery_detail_ = new QLabel(
     tr("电池接口已预留：电压、电流、温度和充电状态"), state_box);
   battery_detail_->setWordWrap(true);
+
+  auto * summary_grid = new QGridLayout();
+  auto add_summary = [state_box, summary_grid](
+    const QString & title, QLabel ** value, int row, int column)
+    {
+      auto * card = new QFrame(state_box);
+      card->setFrameShape(QFrame::StyledPanel);
+      card->setStyleSheet(QStringLiteral(
+        "QFrame { background: #fafafa; border: 1px solid #dfe3e6; border-radius: 6px; }"
+        "QLabel { border: none; background: transparent; }"));
+      auto * layout = new QVBoxLayout(card);
+      layout->setContentsMargins(8, 5, 8, 5);
+      auto * caption = new QLabel(title, card);
+      caption->setStyleSheet(QStringLiteral("color: #607d8b; font-size: 9pt;"));
+      *value = new QLabel(QStringLiteral("--"), card);
+      (*value)->setWordWrap(true);
+      (*value)->setStyleSheet(QStringLiteral("font-weight: bold; color: #263238;"));
+      layout->addWidget(caption);
+      layout->addWidget(*value);
+      summary_grid->addWidget(card, row, column);
+    };
+  add_summary(tr("H743 连接"), &connection_value_, 0, 0);
+  add_summary(tr("底盘状态"), &chassis_state_value_, 0, 1);
+  add_summary(tr("故障诊断"), &fault_value_, 1, 0);
+  add_summary(tr("CAN 通信"), &can_value_, 1, 1);
+  add_summary(tr("手柄速度档位"), &xbox_speed_level_value_, 2, 0);
+  QLabel * speed_switch_hint = nullptr;
+  add_summary(tr("手柄换档方式"), &speed_switch_hint, 2, 1);
+  speed_switch_hint->setText(tr("按左摇杆降档 · 按右摇杆升档"));
+
+  auto make_table = [state_box](const QStringList & headers) {
+    auto * table = new QTableWidget(4, headers.size(), state_box);
+    table->setHorizontalHeaderLabels(headers);
+    table->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionMode(QAbstractItemView::NoSelection);
+    table->setAlternatingRowColors(true);
+    table->verticalHeader()->setVisible(false);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->setMinimumHeight(145);
+    const QStringList wheels = {QObject::tr("左前"), QObject::tr("右前"),
+      QObject::tr("左后"), QObject::tr("右后")};
+    for (int row = 0; row < wheels.size(); ++row) {
+      setTableValue(table, row, 0, wheels.at(row));
+    }
+    return table;
+  };
+  auto * steering_title = new QLabel(tr("RS00 转向电机"), state_box);
+  steering_title->setStyleSheet(QStringLiteral("font-weight: bold; color: #37474f;"));
+  steering_table_ = make_table({tr("车轮"), tr("角度"), tr("反馈"), tr("状态")});
+  auto * drive_title = new QLabel(tr("MINI 行走驱动"), state_box);
+  drive_title->setStyleSheet(QStringLiteral("font-weight: bold; color: #37474f;"));
+  drive_table_ = make_table(
+    {tr("车轮"), tr("转速"), tr("电流"), tr("电压"), tr("温度"), tr("反馈"), tr("状态")});
+
   extended_status_ = new QTreeWidget(state_box);
-  extended_status_->setHeaderLabels({tr("底盘查询项"), tr("值")});
+  extended_status_->setHeaderLabels({tr("高级原始参数"), tr("值")});
   extended_status_->setRootIsDecorated(true);
-  extended_status_->setMinimumHeight(320);
+  extended_status_->setMinimumHeight(260);
+  extended_status_->setVisible(false);
   auto * placeholder = new QTreeWidgetItem(extended_status_);
   placeholder->setText(0, tr("接口"));
   placeholder->setText(1, tr("等待 /antbot/vehicle_status…"));
+  auto * raw_toggle = new QPushButton(tr("显示高级原始参数"), state_box);
+  raw_toggle->setCheckable(true);
+  connect(raw_toggle, &QPushButton::toggled, this, [this, raw_toggle](bool checked) {
+    extended_status_->setVisible(checked);
+    raw_toggle->setText(checked ? tr("隐藏高级原始参数") : tr("显示高级原始参数"));
+  });
+  state_layout->addWidget(chassis_summary_);
   state_layout->addWidget(battery_bar_);
   state_layout->addWidget(battery_detail_);
+  state_layout->addLayout(summary_grid);
+  state_layout->addWidget(steering_title);
+  state_layout->addWidget(steering_table_);
+  state_layout->addWidget(drive_title);
+  state_layout->addWidget(drive_table_);
+  state_layout->addWidget(raw_toggle);
   state_layout->addWidget(extended_status_);
   chassis_root->addWidget(state_box);
 
@@ -267,19 +392,34 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
 
   auto * xbox_box = new QGroupBox(tr("Xbox 手柄操作说明"), control_stack_);
   auto * xbox_layout = new QVBoxLayout(xbox_box);
+  xbox_layout->setSpacing(8);
+  auto * xbox_quick_start = new QLabel(tr("手柄操控 · 快速上手"), xbox_box);
+  xbox_quick_start->setAlignment(Qt::AlignCenter);
+  xbox_quick_start->setMinimumHeight(38);
+  xbox_quick_start->setStyleSheet(QStringLiteral(
+    "QLabel { color: white; background: #1976d2; border-radius: 7px; "
+    "padding: 8px; font-size: 12pt; font-weight: bold; }"));
   auto * xbox_help = new QLabel(
-    tr("① 确认界面显示“手柄连接正常”\n"
-       "② 保持左摇杆回中，按 A 解锁/锁定手柄输出\n"
-       "③ 左摇杆前后控制前进/后退，左右控制横移\n"
-       "④ 按下左/右摇杆降低/提高速度档位\n\n"
-       "真机还必须在“控制与安全”页通过 H743 安全门禁。\n"
-       "当前底盘不支持 angular.z，LT/RT 旋转指令会被丢弃；"
-       "地图请使用下方 RViz 建图按钮保存。"), xbox_box);
+    tr("①  连接手柄，等待上方状态显示“手柄在线”\n"
+       "②  保持左摇杆回中，按 A 键解锁或锁定输出\n"
+       "③  推动左摇杆：前后行驶 / 左右横移\n"
+       "④  按下左摇杆降档，按下右摇杆升档\n"
+       "     可选速度：10% / 25% / 50% / 75% / 100%"), xbox_box);
   xbox_help->setWordWrap(true);
   xbox_help->setAlignment(Qt::AlignLeft | Qt::AlignTop);
   xbox_help->setStyleSheet(QStringLiteral(
-    "QLabel { border: 1px solid #90a4ae; border-radius: 5px; padding: 10px; }"));
+    "QLabel { color: #263238; background: #f7fafc; border: 1px solid #cfd8dc; "
+    "border-radius: 7px; padding: 12px; }"));
+  auto * xbox_notice = new QLabel(
+    tr("安全提示\n真机操控前，还需在“控制与安全”页通过 H743 安全门禁。\n"
+       "当前底盘不支持旋转，LT / RT 的旋转指令不会执行。"), xbox_box);
+  xbox_notice->setWordWrap(true);
+  xbox_notice->setStyleSheet(QStringLiteral(
+    "QLabel { color: #7a4b00; background: #fff8e1; border-left: 4px solid #f9a825; "
+    "border-radius: 5px; padding: 10px; }"));
+  xbox_layout->addWidget(xbox_quick_start);
   xbox_layout->addWidget(xbox_help);
+  xbox_layout->addWidget(xbox_notice);
   control_stack_->addWidget(xbox_box);
 
   auto * keyboard_box = new QGroupBox(tr("键盘全向控制"), control_stack_);
@@ -324,7 +464,7 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   auto * speed_layout_row = new QHBoxLayout();
   speed_layout_row->addWidget(new QLabel(tr("键盘速度"), keyboard_box));
   keyboard_speed_ = new QDoubleSpinBox(keyboard_box);
-  keyboard_speed_->setRange(0.01, 0.10);
+  keyboard_speed_->setRange(0.01, 0.30);
   keyboard_speed_->setSingleStep(0.01);
   keyboard_speed_->setValue(0.05);
   keyboard_speed_->setSuffix(tr(" m/s"));
@@ -359,16 +499,32 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
 
   auto * camera_box = new QGroupBox(tr("车载 RGB 摄像头"), this);
   auto * camera_layout = new QVBoxLayout(camera_box);
+  auto * camera_controls = new QHBoxLayout();
+  camera_topic_box_ = new QComboBox(camera_box);
+  camera_topic_box_->setEditable(true);
+  camera_topic_box_->addItem(QStringLiteral("/antbot/camera/color/image_raw"));
+  camera_topic_box_->setToolTip(tr("选择任意 sensor_msgs/msg/Image 图像话题"));
+  camera_toggle_button_ = new QPushButton(tr("打开画面"), camera_box);
+  camera_refresh_button_ = new QPushButton(tr("刷新"), camera_box);
+  camera_controls->addWidget(camera_topic_box_, 1);
+  camera_controls->addWidget(camera_toggle_button_);
+  camera_controls->addWidget(camera_refresh_button_);
   camera_view_ = new QLabel(tr("等待摄像头画面…"), camera_box);
   camera_view_->setAlignment(Qt::AlignCenter);
   camera_view_->setMinimumSize(160, 120);
   camera_view_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
   camera_view_->setFrameShape(QFrame::StyledPanel);
   camera_view_->setStyleSheet(QStringLiteral("QLabel { background: #151515; color: #cfcfcf; }"));
-  camera_status_ = new QLabel(tr("话题：/antbot/camera/color/image_raw"), camera_box);
+  camera_status_ = new QLabel(tr("等待 ROS 图像话题…"), camera_box);
   camera_status_->setWordWrap(true);
+  camera_layout->addLayout(camera_controls);
   camera_layout->addWidget(camera_view_, 1);
   camera_layout->addWidget(camera_status_);
+  connect(camera_toggle_button_, &QPushButton::clicked, this, &VehicleStatusPanel::toggleCamera);
+  connect(camera_refresh_button_, &QPushButton::clicked, this, &VehicleStatusPanel::refreshCameraTopics);
+  connect(camera_topic_box_, &QComboBox::currentTextChanged, this, [this]() {
+    if (camera_open_ && node_) {subscribeCameraTopic();}
+  });
   camera_root->addWidget(camera_box, 1);
   root->addStretch();
   chassis_root->addStretch();
@@ -395,6 +551,7 @@ void VehicleStatusPanel::onInitialize()
     hardware_status_->setText(tr("无法取得 RViz ROS 节点 · 控制已锁定"));
     safety_enable_button_->setEnabled(false);
     safety_stop_button_->setEnabled(false);
+    system_reset_button_->setEnabled(false);
     odometry_status_->setText(tr("无法取得 RViz ROS 节点"));
     odometry_status_->setStyleSheet(QStringLiteral("color: #d32f2f;"));
     camera_status_->setText(tr("无法取得 RViz ROS 节点"));
@@ -412,6 +569,8 @@ void VehicleStatusPanel::onInitialize()
   node_ = abstraction->get_raw_node();
   operator_enable_client_ = node_->create_client<std_srvs::srv::SetBool>(
     "/antbot/operator_enable");
+  system_reset_client_ = node_->create_client<std_srvs::srv::Trigger>(
+    "/antbot/system_reset");
   teleop_mode_client_ = node_->create_client<std_srvs::srv::SetBool>(
     "/antbot/teleop/use_xbox");
   mapping_enable_client_ = node_->create_client<std_srvs::srv::SetBool>(
@@ -423,9 +582,8 @@ void VehicleStatusPanel::onInitialize()
   odometry_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
     "/odometry/filtered", rclcpp::SensorDataQoS(),
     std::bind(&VehicleStatusPanel::handleOdometry, this, std::placeholders::_1));
-  image_sub_ = node_->create_subscription<sensor_msgs::msg::Image>(
-    "/antbot/camera/color/image_raw", rclcpp::SensorDataQoS(),
-    std::bind(&VehicleStatusPanel::handleImage, this, std::placeholders::_1));
+  refreshCameraTopics();
+  subscribeCameraTopic();
   battery_sub_ = node_->create_subscription<sensor_msgs::msg::BatteryState>(
     "/battery", rclcpp::SensorDataQoS(),
     std::bind(&VehicleStatusPanel::handleBattery, this, std::placeholders::_1));
@@ -438,6 +596,74 @@ void VehicleStatusPanel::onInitialize()
   operator_ui_status_sub_ = node_->create_subscription<std_msgs::msg::String>(
     "/antbot/operator_ui_status", rclcpp::QoS(1).transient_local().reliable(),
     std::bind(&VehicleStatusPanel::handleOperatorUiStatus, this, std::placeholders::_1));
+}
+
+void VehicleStatusPanel::refreshCameraTopics()
+{
+  if (!node_) {
+    return;
+  }
+  const QString current = camera_topic_box_->currentText().trimmed();
+  QStringList topics;
+  for (const auto & entry : node_->get_topic_names_and_types()) {
+    const auto & types = entry.second;
+    if (std::find(types.begin(), types.end(), "sensor_msgs/msg/Image") != types.end()) {
+      topics << QString::fromStdString(entry.first);
+    }
+  }
+  topics.removeDuplicates();
+  topics.sort();
+  camera_topic_box_->blockSignals(true);
+  camera_topic_box_->clear();
+  camera_topic_box_->addItems(topics);
+  if (!current.isEmpty() && camera_topic_box_->findText(current) < 0) {
+    camera_topic_box_->insertItem(0, current);
+  }
+  camera_topic_box_->setCurrentText(
+    current.isEmpty() ? QStringLiteral("/antbot/camera/color/image_raw") : current);
+  camera_topic_box_->blockSignals(false);
+  camera_status_->setText(
+    topics.isEmpty() ? tr("暂未发现图像话题；可手动输入话题后打开") :
+    tr("发现 %1 个原始图像话题，请选择后打开").arg(topics.size()));
+}
+
+void VehicleStatusPanel::subscribeCameraTopic()
+{
+  image_sub_.reset();
+  has_camera_ = false;
+  const QString topic = camera_topic_box_->currentText().trimmed();
+  if (!camera_open_ || !node_ || topic.isEmpty()) {
+    camera_toggle_button_->setText(tr("打开画面"));
+    return;
+  }
+  image_sub_ = node_->create_subscription<sensor_msgs::msg::Image>(
+    topic.toStdString(), rclcpp::SensorDataQoS(),
+    std::bind(&VehicleStatusPanel::handleImage, this, std::placeholders::_1));
+  camera_view_->clear();
+  camera_view_->setText(tr("正在打开摄像头画面…"));
+  camera_status_->setText(tr("已打开：%1 · 等待首帧").arg(topic));
+  camera_status_->setStyleSheet(QStringLiteral("color: #1565c0;"));
+  camera_toggle_button_->setText(tr("关闭画面"));
+  camera_toggle_button_->setStyleSheet(
+    QStringLiteral("QPushButton { background: #c62828; color: white; padding: 6px; }"));
+}
+
+void VehicleStatusPanel::toggleCamera()
+{
+  camera_open_ = !camera_open_;
+  if (!camera_open_) {
+    image_sub_.reset();
+    has_camera_ = false;
+    camera_view_->clear();
+    camera_view_->setText(tr("摄像头画面已关闭"));
+    camera_status_->setText(tr("已关闭 · 可选择其他话题后重新打开"));
+    camera_status_->setStyleSheet(QStringLiteral("color: #607d8b;"));
+    camera_toggle_button_->setText(tr("打开画面"));
+    camera_toggle_button_->setStyleSheet(
+      QStringLiteral("QPushButton { background: #2e7d32; color: white; padding: 6px; }"));
+    return;
+  }
+  subscribeCameraTopic();
 }
 
 bool VehicleStatusPanel::eventFilter(QObject * watched, QEvent * event)
@@ -647,6 +873,8 @@ void VehicleStatusPanel::requestSafetyEnable()
         hardware_status_->setStyleSheet(
           success ? QStringLiteral("color: #ef6c00; font-weight: bold;") :
           QStringLiteral("color: #d32f2f; font-weight: bold;"));
+        safety_enable_button_->setText(
+          success ? tr("… 等待底盘就绪") : tr("启用失败 · 可重试"));
         safety_enable_button_->setEnabled(true);
       }, Qt::QueuedConnection);
     });
@@ -673,6 +901,54 @@ void VehicleStatusPanel::requestSafetyStop()
           QStringLiteral("color: #d32f2f; font-weight: bold;"));
         safety_stop_button_->setEnabled(true);
         safety_enable_button_->setEnabled(true);
+        safety_enable_button_->setText(tr("确认安全并启用"));
+        safety_stop_button_->setText(tr("停止并锁定"));
+      }, Qt::QueuedConnection);
+    });
+}
+
+void VehicleStatusPanel::requestSystemReset()
+{
+  if (!system_reset_client_ || !system_reset_client_->service_is_ready()) {
+    hardware_status_->setText(tr("底盘 RESET 服务未就绪 · 未执行复位"));
+    hardware_status_->setStyleSheet(QStringLiteral("color: #d32f2f; font-weight: bold;"));
+    return;
+  }
+  const auto answer = QMessageBox::warning(
+    this,
+    tr("确认 RESET 底盘"),
+    tr("RESET 将立即：\n\n"
+       "• 锁定所有运动输出并发送零速\n"
+       "• 重新启动 H743 底盘控制器\n"
+       "• 清除当前安全使能，重启后需要重新确认\n\n"
+       "请确保车辆周围安全。是否继续？"),
+    QMessageBox::Yes | QMessageBox::No,
+    QMessageBox::No);
+  if (answer != QMessageBox::Yes) {
+    return;
+  }
+
+  safety_enable_button_->setEnabled(false);
+  safety_stop_button_->setEnabled(false);
+  system_reset_button_->setEnabled(false);
+  hardware_status_->setText(tr("正在锁定运动并 RESET H743…"));
+  hardware_status_->setStyleSheet(QStringLiteral("color: #ef6c00; font-weight: bold;"));
+  auto request = std::make_shared<std_srvs::srv::Trigger::Request>();
+  system_reset_client_->async_send_request(
+    request,
+    [this](rclcpp::Client<std_srvs::srv::Trigger>::SharedFuture future) {
+      const auto response = future.get();
+      const QString text = QString::fromStdString(response->message);
+      const bool success = response->success;
+      QMetaObject::invokeMethod(this, [this, text, success]() {
+        hardware_status_->setText(text);
+        hardware_status_->setStyleSheet(
+          success ? QStringLiteral("color: #ef6c00; font-weight: bold;") :
+          QStringLiteral("color: #d32f2f; font-weight: bold;"));
+        safety_enable_button_->setText(tr("确认安全并启用"));
+        safety_enable_button_->setEnabled(!success);
+        safety_stop_button_->setEnabled(true);
+        system_reset_button_->setEnabled(true);
       }, Qt::QueuedConnection);
     });
 }
@@ -838,6 +1114,74 @@ void VehicleStatusPanel::handleExtendedStatus(
     const QString connection = object.value("connection").toString();
     const bool requested = object.value("operator_requested").toBool(false);
     const bool enabled = object.value("operator_enabled").toBool(false);
+    const QString chassis_state = object.value("chassis_state").toString(tr("未知"));
+    const int fault_flags = object.value("fault_flags").toInt(0);
+    const auto can = object.value("can").toObject();
+    const auto steering = object.value("steering").toObject();
+    const auto drive = object.value("mini").toObject();
+
+    connection_value_->setText(
+      connection == "connected" ? tr("● 在线") : tr("● 离线"));
+    connection_value_->setStyleSheet(
+      connection == "connected" ? QStringLiteral("font-weight: bold; color: #2e7d32;") :
+      QStringLiteral("font-weight: bold; color: #c62828;"));
+    chassis_state_value_->setText(chassis_state);
+    chassis_state_value_->setStyleSheet(
+      chassis_state == "READY" || chassis_state == "IDLE" || enabled ?
+      QStringLiteral("font-weight: bold; color: #2e7d32;") :
+      chassis_state == "FAULT" ? QStringLiteral("font-weight: bold; color: #c62828;") :
+      QStringLiteral("font-weight: bold; color: #ef6c00;"));
+    fault_value_->setText(faultFlagsText(fault_flags));
+    fault_value_->setStyleSheet(
+      fault_flags == 0 ? QStringLiteral("font-weight: bold; color: #2e7d32;") :
+      QStringLiteral("font-weight: bold; color: #c62828;"));
+    can_value_->setText(tr("收 %1 · 发 %2 · 标志 0x%3")
+      .arg(can.value("rx_count").toInt()).arg(can.value("tx_count").toInt())
+      .arg(can.value("flags").toInt(), 0, 16));
+
+    const QString summary_text = connection != "connected" ? tr("底盘离线 · 控制已锁定") :
+      enabled ? tr("✓ 底盘已安全启用 · 可接收当前控制源") :
+      requested ? tr("正在等待底盘 READY · 运动仍被锁定") :
+      fault_flags ? tr("检测到底盘故障 · 请先排障，运动已锁定") :
+      tr("底盘在线 · 等待人工安全确认");
+    const QString summary_color = connection != "connected" || fault_flags ? "#c62828" :
+      enabled ? "#2e7d32" : requested ? "#ef6c00" : "#1565c0";
+    chassis_summary_->setText(summary_text);
+    chassis_summary_->setStyleSheet(QString(
+      "QLabel { color: white; background: %1; border-radius: 7px; "
+      "padding: 9px; font-weight: bold; }").arg(summary_color));
+
+    for (int row = 0; row < 4; ++row) {
+      setTableValue(steering_table_, row, 1, arrayValue(steering, "position_deg", row, 1, tr("°")));
+      setTableValue(steering_table_, row, 2, arrayValue(steering, "feedback_age_ms", row, 0, tr(" ms")));
+      QString steering_status = tr("正常");
+      if (steering.value("fault").toBool()) {steering_status = tr("故障");}
+      else if (!steering.value("homed").toBool()) {steering_status = tr("未回零");}
+      else if (!steering.value("ready").toBool()) {steering_status = tr("未就绪");}
+      setTableValue(steering_table_, row, 3, steering_status);
+
+      const auto speed_values = drive.value("speed_erpm").toArray();
+      if (row < speed_values.size() && speed_values.at(row).isDouble()) {
+        const double erpm = speed_values.at(row).toDouble();
+        setTableValue(
+          drive_table_, row, 1,
+          tr("%1 rpm · %2 erpm").arg(erpm / 10.0, 0, 'f', 1).arg(erpm, 0, 'f', 0));
+      } else {
+        setTableValue(drive_table_, row, 1, QStringLiteral("--"));
+      }
+      setTableValue(drive_table_, row, 2, arrayValue(drive, "current_a", row, 2, tr(" A")));
+      setTableValue(drive_table_, row, 3, arrayValue(drive, "voltage_v", row, 1, tr(" V")));
+      setTableValue(drive_table_, row, 4, arrayValue(drive, "temperature_c", row, 0, tr("°C")));
+      setTableValue(drive_table_, row, 5, arrayValue(drive, "feedback_age_ms", row, 0, tr(" ms")));
+      const auto fault_codes = drive.value("fault_code").toArray();
+      const int drive_fault = row < fault_codes.size() ? fault_codes.at(row).toInt() : 0;
+      const auto safety_flags = drive.value("safety_flags").toArray();
+      const int safety = row < safety_flags.size() ? safety_flags.at(row).toInt() : 0;
+      setTableValue(
+        drive_table_, row, 6,
+        drive_fault ? tr("故障 0x%1").arg(drive_fault, 0, 16) :
+        safety ? tr("保护 0x%1").arg(safety, 0, 16) : tr("正常"));
+    }
     if (!connection.isEmpty()) {
       has_hardware_status_ = true;
       last_hardware_status_time_ = std::chrono::steady_clock::now();
@@ -862,8 +1206,20 @@ void VehicleStatusPanel::handleExtendedStatus(
         hardware_status_->setStyleSheet(
           QStringLiteral("color: #1565c0; font-weight: bold;"));
       }
-      safety_enable_button_->setEnabled(!enabled);
+      safety_enable_button_->setText(
+        enabled ? tr("✓ 底盘已启用") : requested ? tr("… 等待底盘就绪") :
+        fault_flags ? tr("故障未清除 · 无法启用") : tr("确认安全并启用"));
+      safety_enable_button_->setEnabled(!enabled && !requested && fault_flags == 0);
+      safety_enable_button_->setStyleSheet(
+        enabled ? QStringLiteral(
+          "QPushButton { background: #2e7d32; color: white; padding: 9px; font-weight: bold; }") :
+        fault_flags ? QStringLiteral(
+          "QPushButton { background: #b0bec5; color: #455a64; padding: 9px; }") :
+        QStringLiteral(
+          "QPushButton { background: #2e7d32; color: white; padding: 9px; font-weight: bold; }"));
+      safety_stop_button_->setText(enabled || requested ? tr("■ 立即停止并锁定") : tr("停止并锁定"));
       safety_stop_button_->setEnabled(true);
+      system_reset_button_->setEnabled(connection == "connected");
     }
     extended_status_->clear();
     for (auto iterator = object.begin(); iterator != object.end(); ++iterator) {
@@ -887,6 +1243,18 @@ void VehicleStatusPanel::handleOperatorUiStatus(
     const QString mode = object.value("teleop_mode").toString("xbox");
     const int xbox_publishers = object.value("xbox_publishers").toInt(0);
     const int joy_publishers = object.value("joy_publishers").toInt(0);
+    const QString joy_device = object.value("joy_device").toString();
+    const QString joy_name = object.value("joy_device_name").toString();
+    const QString joy_error = object.value("joy_manager_error").toString();
+    const bool xbox_armed = object.value("xbox_armed").toBool(false);
+    const auto xbox_status = object.value("xbox_status").toObject();
+    const int speed_level = xbox_status.value("speed_level").toInt(0);
+    const int speed_level_count = xbox_status.value("speed_level_count").toInt(0);
+    const double speed_ratio = xbox_status.value("speed_ratio").toDouble(0.0);
+    const double speed_limit = xbox_status.value("speed_limit_mps").toDouble(0.0);
+    const bool input_fresh = xbox_status.value("input_fresh").toBool(false);
+    const double command_vx = object.value("command_vx_mps").toDouble(0.0);
+    const double command_vy = object.value("command_vy_mps").toDouble(0.0);
     const int scan_publishers = object.value("scan_publishers").toInt(0);
     const bool mapping_running = object.value("mapping_running").toBool(false);
     const QString mapping_error = object.value("mapping_error").toString();
@@ -897,14 +1265,53 @@ void VehicleStatusPanel::handleOperatorUiStatus(
     xbox_mode_button_->blockSignals(false);
     keyboard_mode_button_->blockSignals(false);
     control_stack_->setCurrentIndex(mode == "xbox" ? 0 : 1);
-    teleop_status_->setText(
-      mode == "xbox" ?
-      tr("当前：Xbox 手柄 · 手柄连接 %1 · 映射节点 %2 · A 键解锁后运动")
-      .arg(joy_publishers > 0 ? tr("正常") : tr("未检测到")).arg(xbox_publishers) :
-      tr("当前：RViz 键盘 · 点击键盘控制框取得焦点"));
+    if (speed_level_count > 0 && speed_level > 0) {
+      xbox_speed_level_value_->setText(
+        tr("第 %1/%2 档  ·  %3%  ·  上限 %4 m/s")
+        .arg(speed_level).arg(speed_level_count)
+        .arg(qRound(speed_ratio * 100.0)).arg(speed_limit, 0, 'f', 3));
+      xbox_speed_level_value_->setStyleSheet(
+        joy_publishers > 0 ?
+        QStringLiteral("font-weight: bold; color: #1565c0; font-size: 11pt;") :
+        QStringLiteral("font-weight: bold; color: #ef6c00; font-size: 11pt;"));
+    } else {
+      xbox_speed_level_value_->setText(tr("等待手柄档位数据…"));
+      xbox_speed_level_value_->setStyleSheet(
+        QStringLiteral("font-weight: bold; color: #78909c;"));
+    }
+    if (mode == "xbox") {
+      if (joy_publishers > 0) {
+        teleop_status_->setText(
+          tr("● 手柄在线 · %1\n设备：%2 · %3")
+          .arg(joy_name.isEmpty() ? tr("Xbox/兼容手柄") : joy_name)
+          .arg(joy_device)
+          .arg(xbox_armed ? tr("A 键已解锁，可以操控") : tr("当前锁定，请按 A 键解锁")));
+        if (speed_level_count > 0) {
+          teleop_status_->setText(
+            teleop_status_->text() +
+            tr("\n速度档：%1/%2 · 当前上限 %3 m/s · 输入%4")
+            .arg(speed_level).arg(speed_level_count).arg(speed_limit, 0, 'f', 3)
+            .arg(input_fresh ? tr("正常") : tr("等待动作")));
+        }
+        teleop_status_->setText(
+          teleop_status_->text() + tr("\n当前指令：前后 vx %1 · 横移 vy %2 m/s")
+          .arg(command_vx, 0, 'f', 2).arg(command_vy, 0, 'f', 2));
+      } else {
+        teleop_status_->setText(
+          tr("○ 手柄未连接 · 后台正在自动检测\n%1")
+          .arg(joy_error.isEmpty() ? tr("插入手柄后无需重启界面") : joy_error));
+      }
+    } else {
+      teleop_status_->setText(tr("● RViz 键盘模式 · 点击键盘控制框取得焦点"));
+    }
     teleop_status_->setStyleSheet(
       mode == "xbox" && (xbox_publishers == 0 || joy_publishers == 0) ?
-      QStringLiteral("color: #ef6c00;") : QStringLiteral("color: #2e7d32;"));
+      QStringLiteral(
+        "QLabel { color: #ef6c00; background: #fff3e0; border-radius: 6px; padding: 8px; }") :
+      xbox_armed || mode == "keyboard" ? QStringLiteral(
+        "QLabel { color: #2e7d32; background: #e8f5e9; border-radius: 6px; padding: 8px; font-weight: bold; }") :
+      QStringLiteral(
+        "QLabel { color: #1565c0; background: #e3f2fd; border-radius: 6px; padding: 8px; }"));
 
     const QString scan_topic = object.value("scan_topic").toString("/scan_0");
     const QString output = object.value("mapping_output_prefix").toString();
@@ -938,8 +1345,8 @@ void VehicleStatusPanel::showCameraImage(const QImage & image, const QString & e
   has_camera_ = true;
   last_camera_time_ = std::chrono::steady_clock::now();
   camera_status_->setText(
-    tr("画面正常 · %1 × %2 · %3 · /antbot/camera/color/image_raw")
-    .arg(image.width()).arg(image.height()).arg(encoding));
+    tr("● 画面正常 · %1 × %2 · %3\n话题：%4")
+    .arg(image.width()).arg(image.height()).arg(encoding, camera_topic_box_->currentText()));
   camera_status_->setStyleSheet(QStringLiteral("color: #2e7d32;"));
 }
 
@@ -954,8 +1361,8 @@ void VehicleStatusPanel::updateDataStatus()
   }
   if (has_camera_ && now - last_camera_time_ > std::chrono::seconds(2)) {
     camera_status_->setText(
-      tr("摄像头画面超时 %1 s · /antbot/camera/color/image_raw")
-      .arg(ageText(last_camera_time_, now)));
+      tr("摄像头画面超时 %1 s · %2")
+      .arg(ageText(last_camera_time_, now), camera_topic_box_->currentText()));
     camera_status_->setStyleSheet(QStringLiteral("color: #ef6c00;"));
   }
   if (has_battery_ && now - last_battery_time_ > std::chrono::seconds(3)) {

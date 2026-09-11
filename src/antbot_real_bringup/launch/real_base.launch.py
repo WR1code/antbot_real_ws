@@ -14,7 +14,7 @@ from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 from launch.actions import EmitEvent
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 
@@ -81,6 +81,8 @@ def generate_launch_description():
         output="screen",
         parameters=[{
             "default_teleop_mode": default_teleop_mode,
+            "manage_joy": ParameterValue(start_joy, value_type=bool),
+            "joy_device": joy_device,
             "max_linear_speed": ParameterValue(
                 max_linear_speed, value_type=float
             ),
@@ -88,23 +90,6 @@ def generate_launch_description():
         }],
     )
 
-    joy_condition = IfCondition(PythonExpression([
-        "'", start_xbox, "'.lower() == 'true' and '",
-        start_joy, "'.lower() == 'true'",
-    ]))
-    joy = Node(
-        package="joy_linux",
-        executable="joy_linux_node",
-        name="antbot_real_joy",
-        output="screen",
-        condition=joy_condition,
-        parameters=[{
-            "dev": joy_device,
-            "deadzone": 0.05,
-            "autorepeat_rate": 20.0,
-            "sticky_buttons": False,
-        }],
-    )
     xbox = Node(
         package="antbot_teleop",
         executable="mapping_xbox",
@@ -118,7 +103,7 @@ def generate_launch_description():
             "max_linear_vel": ParameterValue(
                 max_linear_speed, value_type=float
             ),
-            "max_angular_vel": 0.0,
+            "max_angular_vel": 1.0,
             "topics.cmd_vel": "/antbot/cmd_vel/xbox",
         }],
     )
@@ -146,7 +131,7 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument("start_joy", default_value="true"),
         DeclareLaunchArgument("joy_device", default_value="/dev/input/js0"),
-        DeclareLaunchArgument("max_linear_speed", default_value="0.10"),
+        DeclareLaunchArgument("max_linear_speed", default_value="1.50"),
         DeclareLaunchArgument("telemetry_period", default_value="0.20"),
         DeclareLaunchArgument("allow_disconnected", default_value="false"),
         DeclareLaunchArgument(
@@ -160,7 +145,6 @@ def generate_launch_description():
         model,
         operator_manager,
         bridge,
-        joy,
         xbox,
         shutdown_if_bridge_exits,
     ])

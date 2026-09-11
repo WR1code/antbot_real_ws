@@ -122,8 +122,8 @@ def angle_payload(values: list[float]) -> bytes:
 def speed_payload(values: list[float]) -> bytes:
     encoded = []
     for value in values:
-        if not math.isfinite(value) or abs(value) > 0.5:
-            raise ValueError("wheel speeds must be within -0.5..0.5 m/s")
+        if not math.isfinite(value) or abs(value) > 1.5:
+            raise ValueError("wheel speeds must be within -1.5..1.5 m/s")
         encoded.append(round(value * 1000.0))
     return struct.pack("<hhhh", *encoded)
 

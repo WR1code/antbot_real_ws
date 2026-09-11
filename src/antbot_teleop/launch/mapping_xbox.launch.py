@@ -65,7 +65,7 @@ def generate_launch_description():
             'joy_device', default_value='/dev/input/js0'),
         DeclareLaunchArgument('map_prefix', default_value=''),
         DeclareLaunchArgument('use_sim_time', default_value='true'),
-        DeclareLaunchArgument('max_linear_speed', default_value='0.60'),
+        DeclareLaunchArgument('max_linear_speed', default_value='1.50'),
         DeclareLaunchArgument('max_angular_speed', default_value='1.00'),
         joy_node,
         xbox_node,

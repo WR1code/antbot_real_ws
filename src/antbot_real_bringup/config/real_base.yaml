@@ -3,7 +3,7 @@ h743_cmd_vel_bridge:
     baud: 115200
     topic: /cmd_vel
     status_topic: /rs00/motor_status
-    max_linear_speed: 0.10
+    max_linear_speed: 1.50
     telemetry_period: 0.20
     battery_topic: /battery
     # Voltage-only estimate: replace these endpoints after measuring the pack.
@@ -13,8 +13,8 @@ h743_cmd_vel_bridge:
 antbot_mapping_xbox:
   ros__parameters:
     use_sim_time: false
-    max_linear_vel: 0.10
-    max_angular_vel: 0.0
+    max_linear_vel: 1.50
+    max_angular_vel: 1.0
     topics.cmd_vel: /antbot/cmd_vel/xbox
 
 antbot_operator_manager:

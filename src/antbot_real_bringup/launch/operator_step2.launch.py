@@ -78,8 +78,8 @@ def generate_launch_description():
         )),
         launch_arguments={
             "mode": "real",
-            # H743 currently has no odom and rejects angular.z. Keep autonomous
-            # motion disabled while preserving all map/waypoint/zone UI tools.
+            # H743 supports manual point turns but still has no odom. Keep
+            # autonomous motion disabled while preserving the map/waypoint UI.
             "start_nav2": "false",
             "map": map_yaml,
             "waypoints_file": waypoint_file,
@@ -173,7 +173,7 @@ def generate_launch_description():
         )),
         DeclareLaunchArgument("start_joy", default_value="false"),
         DeclareLaunchArgument("joy_device", default_value="/dev/input/js0"),
-        DeclareLaunchArgument("max_linear_speed", default_value="0.10"),
+        DeclareLaunchArgument("max_linear_speed", default_value="1.50"),
         DeclareLaunchArgument(
             "default_teleop_mode", default_value="xbox",
             choices=["xbox", "keyboard"],

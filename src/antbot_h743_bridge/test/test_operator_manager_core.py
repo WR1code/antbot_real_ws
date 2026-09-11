@@ -4,18 +4,18 @@ import math
 
 from geometry_msgs.msg import Twist
 
-from antbot_h743_bridge.operator_manager import limited_twist
+from antbot_h743_bridge.operator_manager import is_gamepad_name, limited_twist
 
 
-def test_limited_twist_clamps_planar_magnitude_and_drops_rotation():
+def test_limited_twist_gives_clamped_point_turn_priority():
     message = Twist()
     message.linear.x = 3.0
     message.linear.y = 4.0
     message.angular.z = 2.0
     result = limited_twist(message, 0.10)
-    assert math.isclose(result.linear.x, 0.06)
-    assert math.isclose(result.linear.y, 0.08)
-    assert result.angular.z == 0.0
+    assert result.linear.x == 0.0
+    assert result.linear.y == 0.0
+    assert result.angular.z == 1.0
 
 
 def test_limited_twist_rejects_non_finite_input():
@@ -25,3 +25,10 @@ def test_limited_twist_rejects_non_finite_input():
     result = limited_twist(message, 0.10)
     assert result.linear.x == 0.0
     assert result.linear.y == 0.0
+
+
+def test_gamepad_name_filter_accepts_controller_and_rejects_touchscreen():
+    assert is_gamepad_name("Generic X-Box pad")
+    assert is_gamepad_name("8BitDo Ultimate 3mode Xbox")
+    assert not is_gamepad_name("ILITEK ILITEK-TP Mouse")
+    assert not is_gamepad_name("")
