@@ -1,0 +1,12 @@
+string name
+# Negative starts from the beginning; [0, 1] seeks the whole sequence timeline.
+float64 progress
+# Optional current editor contents. Empty uses the saved sequence named above.
+string[] action_names
+# Labels shown in RViz, normally the 1-based positions in the editor list.
+int32[] display_indices
+# True shows all requested trajectories at once instead of playing them in sequence.
+bool overlay
+---
+bool success
+string message

@@ -1,0 +1,6 @@
+---
+bool success
+string message
+string[] names
+# Each entry is a JSON string array aligned with names.
+string[] action_lists_json

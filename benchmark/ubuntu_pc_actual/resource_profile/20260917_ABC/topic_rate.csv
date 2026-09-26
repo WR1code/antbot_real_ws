@@ -1,0 +1,4 @@
+stage,topic,messages,duration_sec,hz,points_per_message,points_per_sec,payload_mb_s,point_step,measurement
+B,/livox/lidar_192_168_1_116,~100,10.0,10.000299,20000.3168,200009.16,5.200238,26,direct PointCloud2 subscription
+B,/livox/lidar_192_168_1_139,~100,10.0,10.00033,20000.64,200013.0,5.200338,26,direct PointCloud2 subscription
+C,/mid360/merged,2949,300.010635031,9.829651537837254,23899.83384198,234927.03847888,6.10810300045,26,formal fusion_metrics window

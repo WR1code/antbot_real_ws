@@ -1,0 +1,15 @@
+# operation: upsert/remove edits a zone; upsert_group/remove_group edits a group.
+string operation
+string name
+# box, sphere, cylinder, cone, or mesh
+string shape
+float64[] dimensions
+geometry_msgs/Pose pose
+string frame_id
+string mesh_path
+float64 mesh_scale
+# Members used by upsert_group; ignored for zone operations.
+string[] members
+---
+bool success
+string message

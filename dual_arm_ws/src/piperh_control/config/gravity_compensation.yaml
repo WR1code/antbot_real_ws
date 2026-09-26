@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    # All three gates must be changed deliberately after current-arm field
+    # validation. The shipped configuration can never send MIT torque.
+    gravity_real_torque_enabled: false
+    gravity_mit_support_confirmed: false
+    gravity_base_mount_confirmed: false
+    gravity_expected_firmware: "S-V1.9-0"
+
+    # hardware.launch.py supplies radians from the actual mount arguments.
+    # These values are ignored until gravity_base_mount_confirmed is true.
+    gravity_mount_roll: 0.0
+    gravity_mount_pitch: 0.0
+    gravity_mount_yaw: 0.0
+    gravity_payload_mass_kg: 0.0
+    gravity_payload_com_xyz_m: [0.0, 0.0, 0.0]
+
+    # First powered test is capped at 10 percent. Per-joint limits intentionally
+    # remain unconfigured (zeros) until authoritative Piper-H limits are recorded.
+    gravity_torque_scale: 0.10
+    gravity_max_torque_nm: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gravity_kp: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    gravity_kd: [0.8, 0.8, 0.8, 0.8, 0.8, 0.8]
+    gravity_rate_hz: 50.0
+    gravity_max_velocity_rad_s: 0.6
+    gravity_max_duration_sec: 0.0

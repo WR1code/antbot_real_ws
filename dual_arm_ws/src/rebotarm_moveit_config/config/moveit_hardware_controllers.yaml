@@ -1,0 +1,27 @@
+trajectory_execution:
+  # The hardware action adaptively slows its trajectory clock when a real
+  # joint falls behind, while retaining the strict path/goal tolerances.
+  allowed_execution_duration_scaling: 5.0
+  allowed_goal_duration_margin: 2.0
+  # Keep the planned start close to measured hardware state.  The former
+  # 0.05 rad window was large enough to cross the folded-home collision edge.
+  allowed_start_tolerance: 0.01
+  execution_duration_monitoring: true
+
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+
+moveit_simple_controller_manager:
+  controller_names:
+    - rebotarm
+
+  rebotarm:
+    action_ns: follow_joint_trajectory
+    type: FollowJointTrajectory
+    default: true
+    joints:
+      - joint1
+      - joint2
+      - joint3
+      - joint4
+      - joint5
+      - joint6

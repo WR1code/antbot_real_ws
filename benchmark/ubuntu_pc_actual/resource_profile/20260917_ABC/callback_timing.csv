@@ -1,0 +1,11 @@
+window,metric,samples,mean_ms,median_ms,p95_ms,p99_ms,max_ms,notes
+C formal,front callback crop work proxy,2949,1.7419966768396065,1.7109,1.8168339999999998,2.5375512000000002,2.69203,in-node processing metric
+C formal,rear callback crop work proxy,2949,1.6295725127161749,1.60234,1.699944,2.3745544,3.31962,in-node processing metric
+C formal,front TF,2949,0.9600220854526959,0.94958,0.9944494,1.3413856,1.54346,in-node processing metric
+C formal,rear TF,2949,0.7997191410647677,0.792311,0.82082,1.1184852,1.28947,in-node processing metric
+C formal,merge,2949,0.08905788233299423,0.05082,0.2442686,0.2577624,0.382648,in-node processing metric
+C formal,fusion total pair processing,2949,5.310537721261444,5.20958,5.591333999999999,7.5986548,8.00225,in-node processing metric
+separate 300 s lightweight timing run,front/rear callback-enter absolute delta,2967,0.5447593306370071,0.531971,0.6877127999999999,0.7521712400000001,1.036927,external callback entry; not scheduler tracing
+separate 300 s lightweight timing run,front/rear header absolute delta,2967,0.2774347684529828,0.186405,0.9624969,1.20259094,1.407934,external callback entry; not scheduler tracing
+separate 300 s lightweight timing run,front callback-enter inter-arrival,2980,100.5704309751678,100.00498400000001,100.51861075,101.01531797,200.276849,external monotonic timestamp
+separate 300 s lightweight timing run,rear callback-enter inter-arrival,2982,100.53620971227363,100.00315950000001,100.553532,101.06147615,200.921901,external monotonic timestamp

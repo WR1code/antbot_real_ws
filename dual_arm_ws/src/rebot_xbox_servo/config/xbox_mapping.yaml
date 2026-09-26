@@ -1,0 +1,151 @@
+# Measured on 2026-07-17 from the connected "Generic X-Box pad".
+# Evidence: inspect_joy reported 8 axes / 11 buttons and jscal reported the
+# kernel axis/button code order recorded in xbox_physical_mapping below.
+rebot_xbox_twist:
+  ros__parameters:
+    device: "/dev/input/js0"
+
+    axes:
+      linear_x: 1
+      linear_y: 0
+      linear_z: 4
+      angular_yaw: 3
+      angular_pitch: 7
+
+    buttons:
+      toggle_arm: 0
+      emergency_stop: 7
+      roll_left: 4
+      roll_right: 5
+      speed_down: 9
+      speed_up: 10
+      frame_switch: 6
+      control_switch: 8
+
+    triggers:
+      # 实测扳机松开为 +1.0，完全按下为 -1.0。
+      gripper_open_axis: 2   # LT
+      gripper_close_axis: 5  # RT
+      deadzone: 0.05
+
+    invert:
+      # 用户要求左、右摇杆上下相对原设置取反：上推输出 -X / -Z。
+      # 水平轴保持右推为正，D-pad pitch 保持实测方向。
+      linear_x: false
+      linear_y: false
+      linear_z: false
+      angular_yaw: false
+      angular_pitch: true
+
+    limits:
+      linear_speed: 0.08
+      angular_speed: 0.40
+      minimum_linear_speed: 0.005
+      maximum_linear_speed: 0.08
+      minimum_angular_speed: 0.05
+      maximum_angular_speed: 0.50
+
+    speed:
+      levels: [0.25, 0.50, 1.00]
+
+    safety:
+      deadzone: 0.10
+      joy_timeout: 0.30
+      require_centered_sticks_to_arm: true
+      require_released_triggers_to_arm: true
+      require_armed_for_gripper: true
+      publish_rate: 20.0
+      shutdown_zero_frames: 5
+
+    frames:
+      base: "base_link"
+      end_effector: "gripper_tcp"
+
+    topics:
+      joy: "/joy"
+      twist: "/servo_node/delta_twist_cmds"
+      armed: "/rebot_xbox/armed"
+      armed_service: "/rebot_xbox/set_armed"
+      gripper_open: "/rebot_xbox/gripper_open"
+      gripper_close: "/rebot_xbox/gripper_close"
+      control_target: "/xbox/control_target"
+      preset_service: "/rebot_xbox/go_to_preset"
+      servo_switch_service: "/servo_node/switch_command_type"
+      servo_pause_service: "/servo_node/pause_servo"
+
+rebot_xbox_sim_gripper:
+  ros__parameters:
+    topics:
+      open_event: "/rebot_xbox/gripper_open"
+      close_event: "/rebot_xbox/gripper_close"
+      command: "/gripper_controller/joint_trajectory"
+      joint_states: "/joint_states"
+    joint_names: ["gripper_joint1", "gripper_joint2"]
+    open_positions: [0.045, 0.045]
+    closed_positions: [0.0, 0.0]
+    maximum_speed: 0.045
+    control_rate: 20.0
+    command_duration: 0.05
+    command_timeout: 0.30
+
+rebot_xbox_arm_initializer:
+  ros__parameters:
+    joint_names: ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6"]
+    # 六轴全 0 为休眠位；启动后缓慢移动到该无碰撞、远离奇异点的 Servo 安全位。
+    target_positions: [0.0, 1.75, 0.7, -0.7, 0.0, 0.0]
+    move_duration: 6.0
+    position_tolerance: 0.01
+    controller_name: "rebotarm_controller"
+    controller_wait_timeout: 30.0
+    completion_timeout: 12.0
+    topics:
+      joint_states: "/joint_states"
+      command: "/rebotarm_controller/joint_trajectory"
+      armed: "/rebot_xbox/armed"
+    services:
+      list_controllers: "/controller_manager/list_controllers"
+
+inspect_joy:
+  ros__parameters:
+    joy_topic: "/joy"
+    noise_threshold: 0.05
+
+# Machine-readable record of every physical control measured on this device.
+# This node name is intentionally not launched; it documents the mapping
+# without injecting unused parameters into rebot_xbox_twist or inspect_joy.
+xbox_physical_mapping:
+  ros__parameters:
+    device_name: "Generic X-Box pad"
+
+    axes:
+      left_stick_x: 0       # ABS_X
+      left_stick_y: 1       # ABS_Y
+      left_trigger: 2       # ABS_Z
+      right_stick_x: 3      # ABS_RX
+      right_stick_y: 4      # ABS_RY
+      right_trigger: 5      # ABS_RZ
+      dpad_x: 6             # ABS_HAT0X
+      dpad_y: 7             # ABS_HAT0Y
+
+    axis_directions:
+      left_stick_x: "right=+1.0; left=-1.0; centered=0.0"
+      left_stick_y: "down=+1.0; up=-1.0; centered=0.0"
+      left_trigger: "released=+1.0; fully_pressed=-1.0"
+      right_stick_x: "right=+1.0; left=-1.0; centered=0.0"
+      right_stick_y: "down=+1.0; up=-1.0; centered=0.0"
+      right_trigger: "released=+1.0; fully_pressed=-1.0"
+      dpad_x: "right=+1.0; left=-1.0; released=0.0"
+      dpad_y: "down=+1.0; up=-1.0; released=0.0"
+
+    buttons:
+      a: 0                  # BTN_A / BTN_SOUTH
+      b: 1                  # BTN_B / BTN_EAST
+      x: 2                  # BTN_X / BTN_NORTH
+      y: 3                  # BTN_Y / BTN_WEST
+      lb: 4                 # BTN_TL
+      rb: 5                 # BTN_TR
+      back: 6               # BTN_SELECT
+      start: 7              # BTN_START
+      xbox_mode: 8          # BTN_MODE
+      left_stick_press: 9   # BTN_THUMBL
+      right_stick_press: 10 # BTN_THUMBR

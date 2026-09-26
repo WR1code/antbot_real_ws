@@ -1,0 +1,91 @@
+piper_pulse_align:
+  ros__parameters:
+    group_name: arm
+    joint_names: [joint1, joint2, joint3, joint4, joint5, joint6]
+    planning_frame: piperh_planning_world
+    tool_frame: piperh/Link6
+    ik_link: Link6
+    target_topic: /piperh/pulse/target
+    arm_direction_topic: /piperh/pulse/arm_direction
+    # Device identity is used for read-only owner diagnostics; the planner never opens it.
+    pressure_serial_device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5CF9120157-if00
+
+    # Coarse confirmed Link6-frame Chi-to-Cun direction after the +pi/2 tool mount.
+    # It is used for dry-run scoring/visualization only; no J6 command is generated.
+    sensor_array_axis_local: [0.0, 1.0, 0.0]
+    sensor_array_axis_configured: true
+    # joint6 axis from the installed Piper-H URDF, expressed in Link6.
+    j6_axis_local: [-0.087161, 0.0, 0.99619]
+    j6_limits_rad: [-3.14, 3.14]
+    # Reserved switch. This implementation remains dry-run even if set true.
+    enable_auto_sensor_axis_alignment: false
+    arm_direction_filter_window_sec: 0.8
+    arm_direction_stable_min_samples: 3
+    arm_direction_stable_deg: 3.0
+    arm_direction_max_age_sec: 1.5
+
+    # Measured green J6 mounting face to the common sensor-tip plane.
+    tip_offset_m: 0.11599
+    standoff_m: 0.060
+    # Explicit opt-in for non-human dummy tests. Never plan past the visual target.
+    dummy_contact_mode: false
+    dummy_max_cartesian_speed_m_s: 0.005
+    dummy_execution_timeout_sec: 90.0
+    # Independent automatic correction guards in piperh_planning_world.
+    # XY is a horizontal-plane radius; Z is absolute vertical travel.
+    maximum_horizontal_translation_m: 0.300
+    maximum_vertical_translation_m: 0.200
+    lateral_deadband_m: 0.001
+    maximum_approach_deviation_deg: 6.0
+    maximum_approach_tangent_shift_m: 0.008
+    ik_timeout_sec: 2.0
+    target_filter_window_sec: 0.6
+    # Deprecated compatibility value; stability has no duration/FPS gate.
+    target_stable_duration_sec: 0.0
+    target_stable_min_samples: 3
+    target_stable_radius_m: 0.005
+    target_ema_alpha: 0.35
+    target_stable_inlier_fraction: 0.60
+    target_soft_drift_m: 0.008
+    target_hard_drift_m: 0.015
+    target_jump_reject_m: 0.015
+    target_hard_drift_hold_sec: 0.20
+    target_soft_drift_observe_sec: 0.20
+    maximum_replan_attempts: 3
+    workspace_limits: [-1.0, 1.0, -1.0, 1.0, 0.20, 1.80]
+    target_timeout_sec: 30.0
+    # Short visual dropouts wait without destroying the frozen target. The
+    # hard limit clears all target history and requires fresh stabilization.
+    target_soft_timeout_sec: 1.5
+    target_hard_timeout_sec: 2.0
+    target_dropout_grace_sec: 0.5
+    maximum_pressure_age_sec: 0.25
+    local_baseline_window_sec: 1.0
+    local_baseline_min_samples: 20
+    local_baseline_max_std_pa: 5.0
+    # Pressure anomaly cancellation, not a calibrated contact-force limit.
+    pressure_precontact_delta_pa: 100.0
+    pressure_abort_hold_sec: 0.15
+    # Extra large-change cancellation after 5-sample median filtering;
+    # does not replace the sustained 100 Pa / 150 ms anomaly guard.
+    pressure_emergency_delta_pa: 1000.0
+    pressure_filter_window_samples: 5
+    # A newly spawned dry-run node needs several seconds to discover all static
+    # TF publishers on the current dual-arm DDS graph.
+    tf_timeout_sec: 12.0
+
+    cartesian_step_m: 0.005
+    jump_threshold: 2.0
+    revolute_jump_threshold_rad: 0.10
+    maximum_cartesian_speed_m_s: 0.010
+    result_timeout: 30.0
+    velocity_scaling: 0.05
+    acceleration_scaling: 0.05
+    preview_delay_sec: 2.0
+
+    heartbeat_hz: 2.0
+    diagnostic_log_directory: logs/pulse_precontact
+
+    # Execute only the collision-checked current -> hover -> precontact path.
+    # No contact, pressure-control, or force-control phase exists in this node.
+    execute_motion: true

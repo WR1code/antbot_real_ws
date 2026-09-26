@@ -5,7 +5,7 @@ import json
 import math
 import time
 import rclpy
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TwistStamped
 from rclpy.node import Node
 from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import BatteryState, JointState
@@ -24,6 +24,7 @@ from .chassis_uart_protocol import (
     limit_linear_velocity,
 )
 from .serial_port import resolve_uart_port
+from .command_authority import AuthoritativeWriter, CommandAuthority
 
 
 WHEEL_CORNERS = ("front_left", "front_right", "rear_left", "rear_right")
@@ -89,7 +90,10 @@ class CmdVelUartBridge(Node):
             resolve_uart_port(),
         )
         self.declare_parameter("baud", 115200)
-        self.declare_parameter("topic", "/cmd_vel")
+        self.declare_parameter("topic", "/antbot/base/authorized_cmd_vel")
+        self.declare_parameter(
+            "authority_topic", "/antbot/base/command_authority"
+        )
         self.declare_parameter("max_linear_speed", 0.5)
         self.declare_parameter("status_topic", "/rs00/motor_status")
         self.declare_parameter("vehicle_status_topic", "/antbot/vehicle_status")
@@ -152,6 +156,10 @@ class CmdVelUartBridge(Node):
         self.latest_ack = None
         self.last_ack_monotonic = 0.0
         self.feedback = {}
+        self._base_authority = CommandAuthority()
+        self._base_writer = AuthoritativeWriter(
+            self._base_authority, self.write_frame
+        )
         # Publish a complete zero pose before hardware feedback arrives.  This
         # keeps robot_state_publisher's dynamic wheel transforms connected in
         # the offline operator UI; valid H743 feedback replaces each value.
@@ -171,7 +179,13 @@ class CmdVelUartBridge(Node):
             (CONTROL_IDS["DRIVE_QUERY_FEEDBACK"], b"\x08"),
         ]
         self.subscription = self.create_subscription(
-            Twist, topic, self.on_cmd_vel, 10
+            TwistStamped, topic, self.on_cmd_vel, 10
+        )
+        self.authority_subscription = self.create_subscription(
+            String,
+            str(self.get_parameter("authority_topic").value),
+            self.on_authority_claim,
+            10,
         )
         self.status_publisher = self.create_publisher(String, status_topic, 10)
         self.vehicle_status_publisher = (
@@ -213,6 +227,37 @@ class CmdVelUartBridge(Node):
             "motion remains locked until /antbot/operator_enable succeeds"
         )
 
+    def on_authority_claim(self, message: String) -> None:
+        try:
+            claim = json.loads(message.data)
+            owner = str(claim["owner"])
+            release = bool(claim.get("release", False))
+            lease = float(claim.get("lease_seconds", 0.0))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if not owner.startswith("operator_manager:"):
+            return
+        now = time.monotonic()
+        token = self._base_authority.token_for(owner, now=now)
+        if release:
+            self._base_authority.release(token)
+            return
+        # A publisher heartbeat is not permission to move.  Claims are only
+        # admitted after the independent operator-enable gate has opened; a
+        # disabled/reconnected bridge therefore stays genuinely ownerless.
+        if not self.operator_requested:
+            return
+        if not 0.05 <= lease <= 2.0:
+            return
+        if token is None:
+            self._base_authority.acquire(
+                owner, now=now, lease_seconds=lease
+            )
+        else:
+            self._base_authority.renew(
+                token, now=now, lease_seconds=lease
+            )
+
     def try_connect(self) -> bool:
         """Open the configured UART, keeping the node alive when permitted."""
         if self.serial is not None and self.serial.is_open:
@@ -238,6 +283,7 @@ class CmdVelUartBridge(Node):
         self.last_ack_monotonic = 0.0
         self.feedback.clear()
         self.ack_parser = AckStreamParser()
+        self._base_authority.revoke("UART reconnected")
         self.get_logger().info(f"H743 已连接：{self.port}")
         return True
 
@@ -254,6 +300,7 @@ class CmdVelUartBridge(Node):
         self.latest_ack = None
         self.last_ack_monotonic = 0.0
         self.feedback.clear()
+        self._base_authority.revoke("UART disconnected")
         self.get_logger().error(f"H743 连接断开并已锁定：{error}")
 
     def write_frame(self, frame: bytes) -> bool:
@@ -289,6 +336,7 @@ class CmdVelUartBridge(Node):
         """Apply the RViz operator gate without ever enabling offline."""
         if not request.data:
             self.operator_requested = False
+            self._base_authority.revoke("operator disabled")
             self.send_stop_frames()
             response.success = True
             response.message = "控制已锁定，底盘已发送零速"
@@ -314,6 +362,7 @@ class CmdVelUartBridge(Node):
     def reset_system(self, _request, response):
         """Lock motion and request a guarded H743 system reset."""
         self.operator_requested = False
+        self._base_authority.revoke("system reset")
         if self.serial is None:
             response.success = False
             response.message = "H743 未连接，RESET 未发送"
@@ -338,7 +387,7 @@ class CmdVelUartBridge(Node):
         self.publish_status()
         return response
 
-    def motion_allowed(self) -> bool:
+    def motion_allowed(self, authority=None) -> bool:
         """Require both the RViz gate and fault-free H743 readiness."""
         telemetry_fresh = (
             self.last_ack_monotonic > 0.0
@@ -346,12 +395,22 @@ class CmdVelUartBridge(Node):
             <= self.telemetry_timeout
         )
         return (
+            self._base_authority.validate(authority)
+            and
             self.operator_requested
             and telemetry_fresh
             and ack_is_motion_ready(self.latest_ack)
         )
 
-    def on_cmd_vel(self, message: Twist) -> None:
+    def on_cmd_vel(self, stamped: TwistStamped) -> None:
+        authority = self._base_authority.token_for(stamped.header.frame_id)
+        if not self._base_authority.validate(authority):
+            self.get_logger().error(
+                "base command rejected at UART writer: no live authority",
+                throttle_duration_sec=1.0,
+            )
+            return
+        message = stamped.twist
         vx = float(message.linear.x)
         vy = float(message.linear.y)
         wz = float(message.angular.z)
@@ -364,16 +423,12 @@ class CmdVelUartBridge(Node):
             vy = 0.0
             wz = max(-1.0, min(1.0, wz))
 
-        if not self.motion_allowed():
-            if (abs(vx) > 1.0e-6 or abs(vy) > 1.0e-6
-                    or abs(wz) > 1.0e-6):
-                self.get_logger().warning(
-                    "motion command blocked: operator/H743 safety gate is locked",
-                    throttle_duration_sec=1.0,
-                )
-            vx = 0.0
-            vy = 0.0
-            wz = 0.0
+        if not self.motion_allowed(authority):
+            self.get_logger().warning(
+                "motion command rejected: operator/H743 safety gate is locked",
+                throttle_duration_sec=1.0,
+            )
+            return
 
         magnitude = math.hypot(vx, vy)
         if magnitude > self.max_linear_speed and magnitude > 0.0:
@@ -386,7 +441,7 @@ class CmdVelUartBridge(Node):
             )
 
         frame = encode_cmd_vel(self.sequence, vx, vy, wz)
-        if not self.write_frame(frame):
+        if not self._base_writer.write(authority, frame):
             return
         self.sequence = (self.sequence + 1) & 0xFF
 
@@ -440,6 +495,8 @@ class CmdVelUartBridge(Node):
 
     def publish_status(self) -> None:
         ack = self.latest_ack
+        authority_owner = self._base_authority.owner()
+        authority = self._base_authority.token_for(authority_owner or "")
         connected = self.serial is not None
         telemetry_fresh = (
             self.last_ack_monotonic > 0.0
@@ -453,7 +510,8 @@ class CmdVelUartBridge(Node):
             "connection_detail": self.port if connected else self.connection_error,
             "autonomous_navigation": "disabled_no_odom_or_angular_z",
             "operator_requested": self.operator_requested,
-            "operator_enabled": self.motion_allowed(),
+            "operator_enabled": self.motion_allowed(authority),
+            "command_owner": authority_owner or "",
             "telemetry_fresh": telemetry_fresh,
         }
         if ack is None:
@@ -566,6 +624,7 @@ class CmdVelUartBridge(Node):
 
     def destroy_node(self):
         self.operator_requested = False
+        self._base_authority.revoke("bridge shutdown")
         if self.serial is not None and self.serial.is_open:
             # Do not rely only on the MCU's 300 ms watchdog during a normal
             # ROS shutdown.  Redundant zero frames stop the chassis first.

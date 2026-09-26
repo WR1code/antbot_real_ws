@@ -1,0 +1,27 @@
+# 所有尺寸和位置单位均为米，orientation_rpy 单位为弧度。
+# frame_id 通常使用机器人基座坐标系 base_link。
+frame_id: base_link
+
+areas:
+  # 示例：机械臂后方的墙。确认现场坐标后把 enabled 改成 true。
+  rear_wall:
+    shape: box
+    dimensions: [0.10, 1.20, 1.00]  # x, y, z
+    pose:
+      position: [-0.45, 0.00, 0.50]
+      orientation_rpy: [0.0, 0.0, 0.0]
+    enabled: false
+
+  # 示例：工作台上的圆柱形设备。
+  fixture:
+    shape: cylinder
+    dimensions: [0.30, 0.08]  # 高度, 半径
+    pose:
+      position: [0.25, -0.30, 0.15]
+      orientation_rpy: [0.0, 0.0, 0.0]
+    enabled: false
+
+groups:
+  workcell_safety:
+    areas: [rear_wall, fixture]
+    enabled: false

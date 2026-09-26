@@ -1,0 +1,4 @@
+# Detected on this host: ttyACM2, USB Single Serial, interface 00.
+# USB hardware identity, independent of tty numbering and physical USB port.
+# This serial matches the project's pressure acquisition device, NOT a proven reBot CAN.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="55d3", ATTRS{serial}=="5CF9120157", ENV{ID_USB_INTERFACE_NUM}=="00", SYMLINK+="robot_serial", MODE="0660", GROUP="dialout"

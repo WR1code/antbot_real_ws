@@ -1,0 +1,134 @@
+{
+  "blind_centers_deg": {
+    "front": -145.4160283075707,
+    "rear": -145.4160283075707
+  },
+  "filter_totals": {
+    "front": {
+      "above_max": 0,
+      "angular_denominator": 29137056,
+      "angular_only_kept": 23992678,
+      "angular_pipeline": 5143453,
+      "below_min": 5032513,
+      "final": 18961090,
+      "frames": 1457,
+      "inf": 0,
+      "invalid": 0,
+      "nan": 0,
+      "raw": 29137056
+    },
+    "rear": {
+      "above_max": 0,
+      "angular_denominator": 29079456,
+      "angular_only_kept": 22964751,
+      "angular_pipeline": 6114705,
+      "below_min": 7073051,
+      "final": 15891700,
+      "frames": 1454,
+      "inf": 0,
+      "invalid": 0,
+      "nan": 0,
+      "raw": 29079456
+    }
+  },
+  "parameters": {
+    "blind_width_deg": 90.0,
+    "max_range": 100.0,
+    "min_range": 0.1,
+    "sync_queue_size": 10,
+    "sync_tolerance_ms": 30.0
+  },
+  "sync": {
+    "absolute_arrival_delta_ms": {
+      "max": 478.783569,
+      "mean": 24.11531423197716,
+      "min": 0.331789,
+      "p50": 3.789226,
+      "p90": 95.74217,
+      "p95": 99.7677,
+      "p99": 100.565644,
+      "samples": 1401
+    },
+    "absolute_header_delta_ms": {
+      "max": 1.788503,
+      "mean": 0.36206539043540326,
+      "min": 0.020283,
+      "p50": 0.299456,
+      "p90": 0.753946,
+      "p95": 0.948893,
+      "p99": 1.232438,
+      "samples": 1401
+    },
+    "drop_reasons": {
+      "queue_limit": 0,
+      "timestamp_delta": 104
+    },
+    "drop_sensors": {
+      "front": 53,
+      "rear": 51
+    },
+    "drops": 104,
+    "pairs": 1401,
+    "remaining_queues": {
+      "front": 0,
+      "rear": 1
+    },
+    "signed_arrival_delta_ms": {
+      "mean": -23.975029772305493,
+      "median": -3.769692
+    },
+    "signed_header_delta_ms": {
+      "equal_count": 0,
+      "front_leads_count": 858,
+      "mean": -0.01222576017130621,
+      "median": -0.102123,
+      "rear_leads_count": 543
+    },
+    "threshold_percent": {
+      "lt_10_ms": 100.0,
+      "lt_20_ms": 100.0,
+      "lt_30_ms": 100.0,
+      "lt_40_ms": 100.0,
+      "lt_50_ms": 100.0
+    }
+  },
+  "transforms": {
+    "front": {
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "rpy_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "translation": [
+        0.322,
+        0.222,
+        0.414
+      ]
+    },
+    "rear": {
+      "quaternion_xyzw": [
+        0.0,
+        0.0,
+        1.0,
+        0.0
+      ],
+      "rpy_deg": [
+        0.0,
+        0.0,
+        180.0
+      ],
+      "translation": [
+        -0.322,
+        -0.222,
+        0.414
+      ]
+    }
+  },
+  "wall_duration_sec": 300.00190520612523
+}

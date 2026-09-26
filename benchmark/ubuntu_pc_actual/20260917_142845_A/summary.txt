@@ -1,0 +1,37 @@
+========= RESULT =========
+
+Stage: A
+Duration: 60 s
+Platform: x86_64
+
+Raw dual MID360:
+Front: 0.00 Hz, 0.00 MB/s, 0 processed pts/s
+Rear: 0.00 Hz, 0.00 MB/s, 0 processed pts/s
+
+After crop:
+Front: 0 pts/s, keep ratio 0.00 %
+Rear: 0 pts/s, keep ratio 0.00 %
+
+Merged:
+0.00 Hz, 0.00 MB/s, 0 pts/s
+
+Resource:
+Total CPU average: 2.16 %
+Total CPU peak: 7.07 %
+Fusion node: 0.00 % CPU, 0.0 MB peak RSS
+RAM peak: 19.24 / 62.60 GiB
+Network RX+TX average across sampled interfaces: 0.02 MB/s
+
+Latency:
+average 0.00 ms
+P50 0.00 ms
+P95 0.00 ms
+P99 0.00 ms
+max 0.00 ms
+
+Sync successes: 0
+Sync misses: 0
+Dropped clouds: 0
+
+Topic rates/bandwidth are recorded in topics.csv; detailed point rates and keep ratios are also in fusion.log.
+Conclusion: inspect measured CSV/log values; this script does not estimate unmeasured capacity.

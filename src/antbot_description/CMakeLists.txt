@@ -4,7 +4,7 @@ project(antbot_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf meshes launch rviz
+  DIRECTORY urdf meshes launch rviz scripts
   DESTINATION share/${PROJECT_NAME}
 )
 

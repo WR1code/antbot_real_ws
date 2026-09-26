@@ -1,0 +1,8 @@
+string name
+# Negative values play the complete path in RViz. Values in [0, 1] seek the
+# loop to that normalized elapsed time and continue playing. Hardware is never
+# commanded by this service.
+float64 progress
+---
+bool success
+string message

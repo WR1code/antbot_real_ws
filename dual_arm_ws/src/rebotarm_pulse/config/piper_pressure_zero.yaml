@@ -1,0 +1,6 @@
+pressure_serial_bridge:
+  ros__parameters:
+    # Fixed unloaded baseline captured 2026-09-12 while the probe was laid flat.
+    # Keep these values as the reference unless a new reference pose is chosen.
+    zero_calibrated: true
+    zero_baselines_pa: [106415.0, 105748.0, 105649.0]

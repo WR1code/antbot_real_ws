@@ -1,0 +1,12 @@
+---
+bool success
+bool feasible
+string message
+uint32 sampled_points
+uint32 reachable_points
+uint32 near_limit_points
+uint32 collision_points
+uint32 no_ik_points
+bool has_suggestion
+geometry_msgs/Pose suggested_pose
+float64 suggestion_distance_m

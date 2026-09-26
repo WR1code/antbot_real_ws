@@ -1,0 +1,6 @@
+string name
+# 0 uses the configured default; otherwise 0.1x to 2.0x.
+float64 speed_scale
+---
+bool success
+string message

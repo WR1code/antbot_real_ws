@@ -1,0 +1,32 @@
+dual_mid360_fusion:
+  ros__parameters:
+    # These input topics are repository-configured relay outputs. Verify them on
+    # the robot with `ros2 topic list -t` before benchmarking.
+    front.input_topic: /antbot/lidar/front_left/points_raw_native
+    rear.input_topic: /antbot/lidar/rear_right/points_raw_native
+    front.filtered_topic: /mid360/front/filtered
+    rear.filtered_topic: /mid360/rear/filtered
+    front.rejected_topic: /mid360/front/rejected
+    rear.rejected_topic: /mid360/rear/rejected
+    merged_topic: /mid360/merged
+
+    target_frame: base_link
+    processing_stage: merge       # crop | transform | merge
+    auto_blind_direction: true
+    blind_width_deg: 90.0
+    robot_center.x: 0.0
+    robot_center.y: 0.0
+    robot_center.z: 0.0
+
+    # Used only when auto_blind_direction is false.
+    front.blind_center_deg: 0.0
+    rear.blind_center_deg: 180.0
+
+    min_range: 0.10
+    max_range: 100.0
+    sync_tolerance_ms: 30.0
+    sync_queue_size: 10
+    tf_timeout_sec: 0.05
+    publish_rejected_cloud: true
+    report_period_sec: 5.0
+    metrics_csv_path: ""

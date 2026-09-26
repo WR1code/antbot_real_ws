@@ -1,0 +1,41 @@
+{
+  "format": "rebot_teach_action_group",
+  "version": 1,
+  "name": "手眼标定姿态_08",
+  "description": "Piper-H 眼在手外自动标定静止采样姿态 08",
+  "robot_model": "piperh",
+  "created_utc": "2026-09-11T13:48:46.630999+00:00",
+  "joint_names": [
+    "joint1",
+    "joint2",
+    "joint3",
+    "joint4",
+    "joint5",
+    "joint6"
+  ],
+  "duration_sec": 3.0,
+  "points": [
+    {
+      "time_from_start": 0.0,
+      "positions": [
+        0.0,
+        1.4,
+        -1.0,
+        0.0,
+        0.3,
+        0.0
+      ]
+    },
+    {
+      "time_from_start": 3.0,
+      "positions": [
+        0.0,
+        1.4,
+        -1.0,
+        0.0,
+        0.3,
+        0.0
+      ]
+    }
+  ]
+}

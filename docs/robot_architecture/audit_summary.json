@@ -1,0 +1,20 @@
+{
+  "hardware_inventory_records": 17,
+  "hardware_confirmed_source_rows": 11,
+  "hardware_likely_rows": 4,
+  "hardware_unknown_rows": 2,
+  "package_manifests": 47,
+  "unique_package_names": 45,
+  "python_node_classes": 73,
+  "cpp_node_classes": 19,
+  "launch_node_declarations": 262,
+  "topic_expressions_unique": 216,
+  "service_expressions_unique": 110,
+  "action_expressions_unique": 12,
+  "hardware_control_chain_sections": 9,
+  "potential_conflict_scenarios": 7,
+  "p0_issues": 3,
+  "p1_issues": 6,
+  "dynamic_interface_call_sites_need_resolution": 256,
+  "not_runtime_graph": true
+}

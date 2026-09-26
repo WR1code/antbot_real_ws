@@ -1,0 +1,15 @@
+moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControllerManager
+# The Piper-H adapter may stretch MoveIt's trajectory to respect its joint
+# velocity/acceleration limits, then wait up to 5 s for the final position to
+# settle. MoveIt's default deadline is based on the unstretched trajectory and
+# can cancel a healthy playback before the adapter finishes (MoveIt -6).
+trajectory_execution:
+  allowed_execution_duration_scaling: 5.0
+  allowed_goal_duration_margin: 6.0
+moveit_simple_controller_manager:
+  controller_names: [arm_controller]
+  arm_controller:
+    type: FollowJointTrajectory
+    action_ns: follow_joint_trajectory
+    default: true
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]

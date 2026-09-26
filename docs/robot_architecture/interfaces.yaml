@@ -1,0 +1,387 @@
+schema_version: 1
+audit_date: '2026-09-15'
+scope: static source facts, not operational Supervisor configuration
+deployable: false
+unknown_marker: UNKNOWN / NEED_CONFIRMATION
+defaults_profile: start_dual_arm.sh / dual_arm_hardware.launch.py
+resources:
+  base:
+    status: CONFIRMED
+    hardware_interface:
+      transport: serial
+      device_default: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5CE6063665-if00
+      baud: 115200
+      mcu_buses:
+      - name: FDCAN1
+        bitrate: 1000000
+        protocol: RS00
+        motor_ids:
+        - 1
+        - 2
+        - 3
+        - 4
+      - name: FDCAN2
+        bitrate: 500000
+        protocol: MINI
+        motor_ids:
+        - 5
+        - 6
+        - 7
+        - 8
+    driver: antbot_h743_bridge/h743_cmd_vel_bridge
+    command_topics:
+    - name: /cmd_vel
+      type: geometry_msgs/msg/Twist
+      direction: SUB
+    state_topics:
+    - name: /rs00/motor_status
+      type: std_msgs/msg/String
+    - name: /antbot/vehicle_status
+      type: std_msgs/msg/String
+    - name: /joint_states
+      type: sensor_msgs/msg/JointState
+    - name: /battery
+      type: sensor_msgs/msg/BatteryState
+    services:
+    - name: /antbot/operator_enable
+      type: std_srvs/srv/SetBool
+    - name: /antbot/system_reset
+      type: std_srvs/srv/Trigger
+    actions: []
+    ownership:
+      implemented: PARTIAL
+      arbiter: antbot_operator_manager
+      sources:
+      - /antbot/cmd_vel/xbox
+      - /antbot/cmd_vel/keyboard
+      lease_enforced: false
+      final_publisher_identity_checked: false
+    fault_sources:
+    - serial errors
+    - ACK age > telemetry_timeout
+    - MCU fault_flags
+    - MCU300ms cmd timeout
+    - CAN bus-off
+    - steering feedback fault
+    - MINI feedback fault
+    odom_publisher: null
+    evidence:
+    - src/antbot_h743_bridge/antbot_h743_bridge/bridge.py
+    - src/antbot_h743_bridge/antbot_h743_bridge/operator_manager.py
+    - firmware/rs00_fk743_test/firmware/App/Inc/drive_config.h
+    - firmware/rs00_fk743_test/firmware/App/Inc/steering_config.h
+  rebotarm:
+    status: CONFIRMED
+    physical_role: UNKNOWN / NEED_CONFIRMATION (left candidate)
+    hardware_interface:
+      model_default: dm
+      launch_device_default: /dev/ttyACM2
+      transport: MotorBridge DM serial
+      baud: 921600
+      motor_ids:
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      feedback_ids:
+      - 17
+      - 18
+      - 19
+      - 20
+      - 21
+      - 22
+      - 23
+      sdk_external: motorbridge
+      underlying_can_bitrate: null
+    driver: rebotarmcontroller/rebotarm_controller
+    command_topics:
+    - name: /rebotarm/xbox_servo/joint_trajectory
+      type: trajectory_msgs/msg/JointTrajectory
+    - name: /rebotarm/joints/{joint}/cmd/mit
+      type: rebotarm_msgs/msg/JointMitCmd
+    - name: /rebotarm/joints/{joint}/cmd/pos_vel
+      type: rebotarm_msgs/msg/JointPosVelCmd
+    - name: /rebotarm/gripper/cmd/mit
+      type: rebotarm_msgs/msg/JointMitCmd
+    - name: /rebotarm/gripper/cmd/pos_vel
+      type: rebotarm_msgs/msg/JointPosVelCmd
+    state_topics:
+    - name: /rebotarm/joint_states
+      type: sensor_msgs/msg/JointState
+    - name: /rebotarm/arm_status
+      type: rebotarm_msgs/msg/ArmStatus
+    services:
+    - name: /rebotarm/enable
+      type: std_srvs/srv/Trigger
+    - name: /rebotarm/disable
+      type: std_srvs/srv/Trigger
+    - name: /rebotarm/safe_home
+      type: std_srvs/srv/Trigger
+    - name: /rebotarm/gravity_compensation/start
+      type: std_srvs/srv/Trigger
+    - name: /rebotarm/gravity_compensation/stop
+      type: std_srvs/srv/Trigger
+    - name: /rebotarm/set_zero
+      type: rebotarm_msgs/srv/SetZero
+    - name: /rebotarm/move_to_pose_ik
+      type: rebotarm_msgs/srv/MoveToPoseIK
+    - name: /rebotarm/gripper/set
+      type: rebotarm_msgs/srv/SetGripper
+    - name: /rebotarm/gripper/open
+      type: rebotarm_msgs/srv/GripperCommand
+    - name: /rebotarm/gripper/close
+      type: rebotarm_msgs/srv/GripperCommand
+    services_resolution: ArmServices table expanded with parent arm_namespace=rebotarm
+    actions:
+    - name: /rebotarm/follow_joint_trajectory
+      type: control_msgs/action/FollowJointTrajectory
+    - name: /rebotarm/move_to_pose
+      type: rebotarm_msgs/action/MoveToPose
+    - name: /rebotarm/gripper/command
+      type: control_msgs/action/GripperCommand
+    ownership:
+      implemented: PARTIAL
+      mechanism: HardwareManager local state/RLock + MotorPassthrough reject/preempt
+        + Xbox selection
+      lease_enforced: false
+    fault_sources:
+    - SDK exceptions
+    - per_joint_status_code
+    - trajectory tolerance/result
+    - Servo watchdog0.15s
+    startup_auto_group_enable: true
+    shutdown_attempts_safe_home: true
+    evidence:
+    - dual_arm_ws/src/rebotarmcontroller/rebotarmcontroller/hardware_manager.py
+    - dual_arm_ws/third_party/reBotArm_control_py/reBotArm_control_py/actuator/rebotarm.py
+    - dual_arm_ws/src/rebotarmcontroller/rebotarmcontroller/ros_actions.py
+    - dual_arm_ws/src/rebot_xbox_hardware/launch/dual_arm_hardware.launch.py
+    - dual_arm_ws/.hardware-venv/lib/python3.12/site-packages/motorbridge/core.py
+  piperh:
+    status: CONFIRMED
+    physical_role: right-side mount in launch; actual assembly NEED_CONFIRMATION
+    hardware_interface:
+      transport: SocketCAN
+      device_default: can0
+      bitrate: null
+      joint_feedback_can_ids:
+      - 677
+      - 678
+      - 679
+      leader_feedback_can_ids:
+      - 341
+      - 342
+      - 343
+      vendor_sdk: piper_sdk
+      physical_motor_ids: null
+      sdk_expected_bitrate: 1000000
+      joint_command_can_ids:
+      - 341
+      - 342
+      - 343
+    driver:
+    - piper/piper_single_ctrl
+    - piperh_control/hardware_adapter
+    command_topics:
+    - name: /piperh/servo_joint_trajectory
+      type: trajectory_msgs/msg/JointTrajectory
+    - name: /piperh/driver_joint_command
+      type: sensor_msgs/msg/JointState
+    - name: /piperh/pos_cmd
+      type: piper_msgs/msg/PosCmd
+      bypasses_adapter: true
+    - name: /piperh/enable_flag
+      type: std_msgs/msg/Bool
+      bypasses_adapter: true
+    state_topics:
+    - name: /piperh/joint_states
+      type: sensor_msgs/msg/JointState
+    - name: /piperh/leader_joint_states
+      type: sensor_msgs/msg/JointState
+    - name: /piperh/arm_status
+      type: rebotarm_msgs/msg/ArmStatus
+    - name: /piperh/driver_arm_status
+      type: piper_msgs/msg/PiperStatusMsg
+    services:
+    - name: /piperh/enable_srv
+      type: piper_msgs/srv/Enable
+    - name: /piperh/motor/set_enabled
+      type: std_srvs/srv/SetBool
+    - name: /piperh/gravity_compensation/start
+      type: std_srvs/srv/Trigger
+    - name: /piperh/gravity_compensation/stop
+      type: std_srvs/srv/Trigger
+    - name: /piperh/control_state/dump
+      type: std_srvs/srv/Trigger
+    actions:
+    - name: /piperh/arm_controller/follow_joint_trajectory
+      type: control_msgs/action/FollowJointTrajectory
+    ownership:
+      implemented: PARTIAL
+      mechanism: gravity/action flags and Xbox selection
+      lease_enforced: false
+      servo_checks_action_active: false
+    fault_sources:
+    - feedback_timeout0.75s
+    - playback_feedback_timeout0.20s
+    - tracking error/settle timeout
+    - gravity mode/vendor/selection/feedback gates
+    parent_vendor_auto_enable: false
+    evidence:
+    - dual_arm_ws/src/piperh_control/piperh_control/hardware_adapter.py
+    - dual_arm_ws/src/piper/piper/piper_ctrl_single_node.py
+    - dual_arm_ws/src/rebot_xbox_hardware/launch/dual_arm_hardware.launch.py
+    - dual_arm_ws/src/piper/piper/teach_can_grouper.py
+    - dual_arm_ws/.hardware-venv/lib/python3.12/site-packages/piper_sdk/interface/piper_interface.py
+    - dual_arm_ws/.hardware-venv/lib/python3.12/site-packages/piper_sdk/hardware_port/can_encapsulation_v0_4_0.py
+  pulse_sensor:
+    status: CONFIRMED
+    hardware_interface:
+      transport: serial
+      device_default: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5CF9120157-if00
+      baud: 921600
+      channels:
+      - s1
+      - s2
+      - s3
+    driver: rebotarm_pulse/pressure_serial_bridge
+    command_topics: []
+    state_topics:
+    - name: /piperh/pulse/raw/{s1,s2,s3}/pressure
+      type: sensor_msgs/msg/FluidPressure
+    - name: /piperh/pulse/raw/{s1,s2,s3}/temperature
+      type: sensor_msgs/msg/Temperature
+    - name: /piperh/pulse/serial_connected
+      type: std_msgs/msg/Bool
+    - name: /piperh/pulse/zeroed/{s1,s2,s3}/pressure
+      type: sensor_msgs/msg/FluidPressure
+    - name: /piperh/pulse/zero_calibrated
+      type: std_msgs/msg/Bool
+    services:
+    - name: /piperh/pulse/calibrate_zero
+      type: std_srvs/srv/Trigger
+    actions: []
+    ownership:
+      implemented: YES_LOCAL
+      mechanism: PressureSerialLease + pyserial exclusive=True
+    fault_sources:
+    - open/read error
+    - device identity change
+    - task checks sample freshness
+    serial_connected_is_sample_heartbeat: false
+    evidence:
+    - src/rebotarm_pulse/rebotarm_pulse/pressure_serial_bridge.py
+    - dual_arm_ws/src/rebot_xbox_hardware/launch/dual_arm_hardware.launch.py
+  perception:
+    status: CONFIRMED_SOURCE_ONLY
+    hardware_interface:
+      camera_candidate: Orbbec Gemini336L
+      transport: USB
+      serial_number: null
+    driver: orbbec_camera + meridian_hand_vision/red_point_localizer
+    command_topics: []
+    state_topics: []
+    dynamic_interfaces: see full ROS_INTERFACE_MATRIX RgbDepthSubscriber/RedPointDetector/PiperPulseTarget
+    services: []
+    actions: []
+    ownership:
+      implemented: NO_WHOLE_ROBOT
+    fault_sources:
+    - target freshness/stability
+    - TF lookup timeout
+    - camera data absent
+    default_parent_camera_detection_started: false
+    evidence:
+    - src/antbot_camera/launch/camera.launch.py
+    - src/rebotarm_pulse/rebotarm_pulse/piper_pulse_align.py
+    - dual_arm_ws/src/rebot_xbox_hardware/launch/dual_arm_hardware.launch.py
+  mid360_mapping:
+    status: RVIZ_INTEGRATED_FAIL_CLOSED
+    hardware_interface:
+      transport: ethernet
+      host_interface: eno1
+      host_test_address: 192.168.1.50/24
+      front_ip_candidate: 192.168.1.116
+      rear_ip_candidate: 192.168.1.139
+      physical_identity_confirmed: false
+    driver: livox_ros_driver2 1.2.6
+    state_topics:
+    - name: /livox/lidar_192_168_1_116
+      type: livox_ros_driver2/msg/CustomMsg in mapping mode
+    - name: /livox/lidar_192_168_1_139
+      type: livox_ros_driver2/msg/CustomMsg in mapping mode
+    - name: /antbot/lidar/front_left/imu_raw_si
+      type: sensor_msgs/msg/Imu
+    - name: /antbot/lidar/rear_right/imu_raw_si
+      type: sensor_msgs/msg/Imu
+    - name: /Odometry
+      type: nav_msgs/msg/Odometry
+      note: FAST-LIO IMU-body output
+    - name: /odom
+      type: nav_msgs/msg/Odometry
+      note: gated AntBot base_link output; inactive while TF preflight fails
+    - name: /cloud_registered
+      type: sensor_msgs/msg/PointCloud2
+      note: deskewed FAST-LIO cloud for unified RViz, not a Nav2 occupancy map
+    mapping_entry: antbot_mapping/antbot_mapping.launch.py
+    integrated_entry: start_dual_arm.sh then RViz /antbot/mapping/set_enabled
+    services:
+    - /antbot/mapping/set_enabled
+    - /antbot/mapping/save
+    lio: Ericsii FAST_LIO_ROS2 commit 2fffc570, Jazzy overlay
+    ownership:
+      odom_to_base_link: antbot_mapping/lio_odom_adapter only
+      map_to_odom: null
+      sensor_tf: robot_state_publisher plus official internal MID360S IMU TF
+    blockers:
+    - both MID360S produced no packets in the latest integrated short test
+    - physical IP/front-rear label confirmation
+    - manual IMU yaw sign test
+    - Nav2 still requires validated 2D projection, occupancy map and localization
+    evidence:
+    - benchmark/ubuntu_pc_actual/PRE_MAPPING_READINESS.md
+    - benchmark/ubuntu_pc_actual/MAPPING_TF_OWNERSHIP.md
+    - src/antbot_mapping/README.md
+    - benchmark/ubuntu_pc_actual/RVIZ_MAPPING_INTEGRATION.md
+  left_arm:
+    status: UNKNOWN / NEED_CONFIRMATION physical mapping
+    hardware_interface: null
+    driver: null
+    command_topics: []
+    state_topics: []
+    services: []
+    actions: []
+    ownership:
+      implemented: NO_VERIFIED_PHYSICAL_ROLE_BINDING
+    fault_sources: []
+    candidate_resource: rebotarm
+    note: Not a second driver definition; confirm physical role before binding. Concrete
+      source interfaces are in candidate resource.
+  right_arm:
+    status: UNKNOWN / NEED_CONFIRMATION physical mapping
+    hardware_interface: null
+    driver: null
+    command_topics: []
+    state_topics: []
+    services: []
+    actions: []
+    ownership:
+      implemented: NO_VERIFIED_PHYSICAL_ROLE_BINDING
+    fault_sources: []
+    candidate_resource: piperh
+    note: Not a second driver definition; confirm physical role before binding. Concrete
+      source interfaces are in candidate resource.
+physical_resource_mapping:
+  left_arm:
+    implementation: null
+    candidate: rebotarm
+    status: UNKNOWN / NEED_CONFIRMATION
+  right_arm:
+    implementation: piperh
+    status: LIKELY physical, CONFIRMED launch right mount
+discovery: source_inventory.json contains ALL raw interface expressions including
+  services/actions omitted from normalized subset
+proposed_supervisor_interfaces: null

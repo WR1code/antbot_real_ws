@@ -1,0 +1,20 @@
+parameters:
+  name: piperh_camera_eye_in_hand
+  calibration_type: eye_in_hand
+  robot_base_frame: piperh/base_link
+  robot_effector_frame: piperh/Link5
+  tracking_base_frame: camera_color_optical_frame
+  tracking_marker_frame: marker_frame
+  freehand_robot_movement: true
+  move_group_namespace: /
+  move_group: manipulator
+transform:
+  translation:
+    x: 0.057727848650134084
+    y: -0.10960045517824478
+    z: -0.05043772597374002
+  rotation:
+    x: 0.46911803723797424
+    y: -0.40832683234749845
+    z: 0.26153985318839973
+    w: 0.738101869877891

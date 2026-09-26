@@ -11,6 +11,7 @@ from antbot_h743_bridge.bridge import (
     ack_is_motion_ready,
     joint_positions_from_feedback,
 )
+from antbot_h743_bridge.command_authority import CommandAuthority
 from antbot_h743_bridge.chassis_uart_protocol import Ack, CONTROL_IDS
 
 
@@ -77,6 +78,7 @@ def test_system_reset_locks_motion_and_sends_guarded_command():
     bridge.latest_ack = ack()
     bridge.last_ack_monotonic = 123.0
     bridge.feedback = {2: ack()}
+    bridge._base_authority = CommandAuthority()
     calls = []
     bridge.send_stop_frames = lambda: calls.append(("stop",))
     bridge.send_control = lambda command, payload=b"": (

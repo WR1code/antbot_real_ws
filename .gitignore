@@ -11,3 +11,16 @@
 *.pyo
 *.swp
 navigation_data/logs/
+/dual_arm_ws/.venv/
+/dual_arm_ws/.hardware-venv/
+
+# Runtime logs and generated diagnostics.
+/logs/
+/artifacts/pulse/
+/artifacts/maps/home_01/mapping_runs/
+/dual_arm_ws/resources/motions/piperh/replay/
+/dual_arm_ws/src/piper_h_description/export.log
+/dual_arm_ws/src/OrbbecSDK_ROS2/orbbec_camera/examples/multi_camera_synced_verification_tool/multicamera_sync/output/
+
+# Large vendor reference bundle; keep the authored protocol notes in docs/.
+/docs/反客STM32H743IIT6核心板（型号FK743M2-IIT6 排针版）/

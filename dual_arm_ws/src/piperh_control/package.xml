@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>piperh_control</name>
+  <version>0.1.0</version>
+  <description>Piper-H simulation bridge and guarded real-hardware adapters.</description>
+  <maintainer email="devnull@example.com">workspace maintainer</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>rclpy</depend>
+  <depend>ament_index_python</depend>
+  <depend>piper_msgs</depend>
+  <depend>piper</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>trajectory_msgs</depend>
+  <depend>control_msgs</depend>
+  <depend>moveit_msgs</depend>
+  <depend>rebotarm_msgs</depend>
+  <depend>rebot_xbox_servo</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>moveit_configs_utils</exec_depend>
+  <exec_depend>moveit_ros_move_group</exec_depend>
+  <exec_depend>moveit_servo</exec_depend>
+  <exec_depend>joy_linux</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-can</exec_depend>
+  <exec_depend>pinocchio</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

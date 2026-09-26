@@ -1,0 +1,20 @@
+string shape
+string source
+bool visible
+bool reset_pose
+bool set_pose
+float64 x
+float64 y
+float64 z
+float64 roll
+float64 pitch
+float64 yaw
+bool set_size
+float64 width
+float64 height
+bool set_pen
+float64 pen_length
+float64 pen_lift
+---
+bool success
+string message

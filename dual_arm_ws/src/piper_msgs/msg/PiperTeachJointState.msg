@@ -1,0 +1,11 @@
+builtin_interfaces/Time sample_timestamp
+builtin_interfaces/Time timestamp_j12
+builtin_interfaces/Time timestamp_j34
+builtin_interfaces/Time timestamp_j56
+float64 callback_monotonic_time
+string[6] name
+float64[6] position
+float64 intra_cycle_span
+uint64 dropped_cycles
+uint64 wide_span_cycles
+bool timing_valid

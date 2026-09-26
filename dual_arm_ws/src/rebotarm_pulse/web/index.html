@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#18241f">
+  <title>岐衡 · 智能脉象评估</title>
+  <meta name="description" content="一屏查看今日状态、脉搏波形与生活化健康建议。">
+  <link rel="stylesheet" href="./styles.css?v=20260914-12">
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="seal" aria-hidden="true">脉</div>
+        <div>
+          <p class="eyebrow">三部九候 · 实时采集</p>
+          <h1>岐衡脉诊仪</h1>
+        </div>
+      </div>
+      <div class="top-actions">
+        <span class="connection" id="connectionState"><i></i>设备未连接</span>
+        <button class="button ghost" id="demoButton" type="button" hidden>波形预览</button>
+        <button class="button ghost" id="rosConnectButton" type="button">连接 ROS 数据</button>
+        <button class="button primary" id="connectButton" type="button">连接采集器</button>
+      </div>
+    </header>
+
+    <nav class="page-nav" aria-label="页面导航">
+      <button id="pageCapture" class="page-tab active" type="button" aria-current="page"><span>01</span> 实时采集</button>
+      <button id="pageReport" class="page-tab" type="button"><span>02</span> 采集报告 <i id="reportTabDot" aria-hidden="true"></i></button>
+    </nav>
+
+    <main class="workspace">
+      <section class="measurement-panel" id="capturePage" aria-labelledby="measurementTitle">
+        <div class="section-head">
+          <div>
+            <p class="section-kicker">实时脉搏图</p>
+            <h2 id="measurementTitle">寸 · 关 · 尺</h2>
+          </div>
+          <div class="session-meta">
+            <span>采集时长 <strong id="elapsedTime">00:00</strong></span>
+            <span>串口 <strong id="portLabel">—</strong></span>
+            <span>速率 <strong>921600</strong></span>
+          </div>
+        </div>
+
+        <section class="exam-context" aria-label="采集信息">
+          <label>受试编号<input id="subjectId" type="text" maxlength="32" placeholder="选填，本机使用"></label>
+          <label>采集侧<select id="wristSide"><option value="未记录">未记录</option><option value="左腕">左腕</option><option value="右腕">右腕</option></select></label>
+          <label>体位<select id="posture"><option value="静坐">静坐</option><option value="平卧">平卧</option><option value="其他">其他</option></select></label>
+          <span>建议安静休息后连续采集 20 秒以上</span>
+        </section>
+
+        <details class="four-exams">
+          <summary>补充观察信息 <small>仅作采集备注，不参与本页数据分析</small></summary>
+          <div class="exam-grid">
+            <label>寒热感受<select id="coldHeat"><option value="normal">无明显</option><option value="cold">畏寒肢冷</option><option value="heat">身热烦热</option></select></label>
+            <label>口渴饮水<select id="thirst"><option value="normal">无明显</option><option value="cold_drink">口渴喜冷饮</option><option value="warm_drink">口淡不渴/喜热饮</option></select></label>
+            <label>出汗<select id="sweat"><option value="normal">正常</option><option value="spontaneous">活动不多也自汗</option><option value="night">睡中盗汗</option></select></label>
+            <label>精神体力<select id="energy"><option value="normal">正常</option><option value="fatigue">神疲乏力</option><option value="restless">烦躁不安</option></select></label>
+            <label>大便<select id="stool"><option value="normal">正常</option><option value="loose">便溏</option><option value="dry">便秘/干结</option></select></label>
+            <label>睡眠<select id="sleep"><option value="normal">正常</option><option value="insomnia">入睡困难/易醒</option><option value="sleepy">困倦嗜睡</option></select></label>
+            <label>舌质<select id="tongueColor"><option value="normal">淡红</option><option value="pale">淡白</option><option value="red">红/绛</option><option value="purple">紫暗/有瘀点</option></select></label>
+            <label>舌苔<select id="tongueCoat"><option value="normal">薄白</option><option value="yellow">黄苔</option><option value="greasy">厚腻苔</option><option value="little">少苔/无苔</option></select></label>
+          </div>
+          <div class="symptom-checks" aria-label="其他表现">
+            <label><input id="distension" type="checkbox"> 胸胁或脘腹胀闷</label>
+            <label><input id="mood" type="checkbox"> 情志不舒、易叹息</label>
+            <label><input id="fixedPain" type="checkbox"> 固定刺痛或夜间加重</label>
+          </div>
+        </details>
+
+        <div class="pulse-list">
+          <article class="pulse-card" data-sensor="S1">
+            <div class="pulse-name"><span class="position">寸</span><span class="code">S1 · GPIO 41/42</span></div>
+            <div class="wave-wrap"><canvas id="canvasS1" aria-label="寸脉实时压力波形"></canvas><div class="empty-wave">等待寸部数据</div></div>
+            <div class="reading"><strong id="valueS1">—</strong><span>hPa</span><small id="rateS1">0 Hz</small></div>
+          </article>
+          <article class="pulse-card" data-sensor="S2">
+            <div class="pulse-name"><span class="position">关</span><span class="code">S2 · GPIO 5/4</span></div>
+            <div class="wave-wrap"><canvas id="canvasS2" aria-label="关脉实时压力波形"></canvas><div class="empty-wave">等待关部数据</div></div>
+            <div class="reading"><strong id="valueS2">—</strong><span>hPa</span><small id="rateS2">0 Hz</small></div>
+          </article>
+          <article class="pulse-card" data-sensor="S3">
+            <div class="pulse-name"><span class="position">尺</span><span class="code">S3 · 寸部派生</span></div>
+            <div class="wave-wrap"><canvas id="canvasS3" aria-label="尺脉派生压力波形"></canvas><div class="empty-wave">等待寸部数据</div></div>
+            <div class="reading"><strong id="valueS3">—</strong><span>hPa</span><small id="rateS3">0 Hz</small></div>
+          </article>
+        </div>
+
+        <p class="wave-mode" id="waveMode" role="status" aria-live="polite" hidden>正在建立采样基线</p>
+
+        <div class="measurement-footer">
+          <div class="window-control">
+            <label for="windowRange">显示窗口</label>
+            <input id="windowRange" type="range" min="3" max="20" value="8" step="1">
+            <output id="windowValue">8 秒</output>
+          </div>
+          <button class="text-button" id="clearButton" type="button">清空本次数据</button>
+        </div>
+        <div class="capture-next"><span>采集满 20 秒后，可在第二页生成报告</span><button class="button primary" id="viewReportButton" type="button">查看采集报告 →</button></div>
+      </section>
+
+      <section class="report-panel" id="reportPage" aria-labelledby="reportTitle" hidden>
+        <div class="report-top">
+          <div class="report-branding">
+            <span class="report-orbit" aria-hidden="true"><i></i></span>
+            <div>
+              <span class="report-kicker">智能健康分析</span>
+              <h2 id="reportTitle">智能脉象评估</h2>
+              <p>PERSONAL PULSE ASSESSMENT</p>
+            </div>
+          </div>
+          <div class="report-meta">
+            <span class="report-clock" id="reportClock">—</span>
+            <span class="meta-chip"><i></i>静息测量</span>
+            <span class="report-status" id="reportStatus">等待采集</span>
+            <button class="header-link" id="reportBackButton" type="button" aria-label="重新进行脉象测量">重新测量</button>
+          </div>
+        </div>
+
+        <div class="report-empty" id="reportEmpty">
+          <div class="empty-mark" aria-hidden="true">診</div>
+          <h3>等待本次采集</h3>
+          <p id="reportEmptyText">连接设备并连续采集至少 20 秒，即可生成基于真实采样的个人脉象观察报告。</p>
+          <div class="progress"><span id="progressBar"></span></div>
+          <small id="progressText">已采集 0 / 20 秒</small>
+          <button class="button ghost" id="returnCaptureButton" type="button">返回实时采集</button>
+        </div>
+
+        <div class="persona-content dashboard-content" id="personaContent" hidden>
+          <div class="dashboard-top">
+            <section class="dash-card today-card">
+              <div class="card-heading"><span>今日状态</span><small>TODAY</small></div>
+              <div class="today-main">
+                <div class="status-avatar state-good" data-status-avatar aria-label="状态良好">
+                  <svg viewBox="0 0 120 120" role="img"><circle cx="60" cy="60" r="45"/><path d="M42 53c4-5 9-5 13 0M65 53c4-5 9-5 13 0M43 72c10 10 24 10 34 0"/><path class="spark" d="M91 25l3-8 3 8 8 3-8 3-3 8-3-8-8-3z"/></svg>
+                </div>
+                <div><h3 data-field="overallStatus"></h3><p data-field="overallSubtitle"></p><div class="quick-tags" data-list="todayTags"></div></div>
+              </div>
+            </section>
+            <section class="dash-card score-card">
+              <div class="card-heading"><span>今日状态指数</span><small>STATUS INDEX</small></div>
+              <div class="score-ring" data-score-ring><div class="score-value"><strong data-field="statusScore">--</strong><span>/ 100</span></div></div>
+              <div class="score-caption"><i></i><span data-field="scoreLabel"></span></div><small class="score-reference">本次状态综合参考</small>
+            </section>
+            <section class="dash-card body-card">
+              <div class="card-heading"><span>状态速览</span><small>STATUS OVERVIEW</small></div>
+              <div class="summary-grid">
+                <article class="summary-card"><span class="summary-icon icon-heart" aria-hidden="true"></span><span>心情状态</span><strong data-field="mood"></strong></article>
+                <article class="summary-card"><span class="summary-icon icon-breathe" aria-hidden="true"></span><span>放松程度</span><strong data-field="relaxation"></strong></article>
+                <article class="summary-card"><span class="summary-icon icon-energy" aria-hidden="true"></span><span>活力状态</span><strong data-field="energy"></strong></article>
+                <article class="summary-card"><span class="summary-icon icon-rhythm" aria-hidden="true"></span><span>节律状态</span><strong data-field="rhythm"></strong></article>
+              </div>
+            </section>
+            <section class="dash-card pulse-summary-card"><div class="card-heading"><span>本次脉象</span><small>PULSE SUMMARY</small></div><div class="pulse-summary-main"><div class="pulse-bpm"><strong data-field="bpm">--</strong><span>次 / 分</span></div><div class="pulse-type" data-field="pulseType"></div></div><div class="pulse-facts"><div><span>节律</span><strong data-field="pulseRhythm"></strong></div><div><span>波幅</span><strong data-field="pulseAmplitude"></strong></div><div><span>稳定</span><strong data-field="pulseStability"></strong></div></div><div class="pulse-summary-bottom"><div class="pulse-keywords" data-list="pulseTags"></div><div class="typical-beat"><span>典型脉搏周期</span><canvas data-viz="typicalBeat" aria-label="典型单次脉搏波形"></canvas></div></div></section>
+          </div>
+          <div class="dashboard-middle">
+            <section class="dash-card wave-section"><div class="card-heading"><span>本次脉搏波形</span><small><span data-field="bpm"></span> BPM · PULSE SIGNAL</small></div><canvas id="personaWaveCanvas" data-viz="mainWave" aria-label="本次脉搏波形"></canvas><div class="wave-scale"><span>本次脉搏信号</span><span>8 秒窗口</span></div></section>
+            <section class="dash-card profile-card"><div class="card-heading"><span>脉象画像</span><small>PULSE PROFILE</small></div><canvas data-viz="radar" aria-label="节律、波幅、稳定、清晰、均衡五维脉象画像"></canvas></section>
+            <section class="dash-card positions-card"><div class="card-heading"><span>寸 · 关 · 尺</span><small>THREE POSITIONS</small></div><div class="position-grid"><article class="position-card" data-position="cun"><div><h4>寸</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="寸部微型波形"></canvas></div></article><article class="position-card" data-position="guan"><div><h4>关</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="关部微型波形"></canvas></div></article><article class="position-card" data-position="chi"><div><h4>尺</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="尺部微型波形"></canvas></div></article></div></section>
+          </div>
+          <div class="dashboard-bottom">
+            <section class="dash-card interpretation"><div class="card-heading"><span>今日状态解读</span><small>DAILY INSIGHT</small></div><div class="insight-copy"><strong data-field="insightTitle"></strong><p data-field="insightDetail"></p><p data-field="insightExtra"></p></div></section>
+            <section class="dash-card advice-section"><div class="card-heading"><span>今日建议</span><small>GENTLE TIPS</small></div><div class="advice-grid"><article><i class="advice-icon icon-move"></i><strong data-advice="0"></strong></article><article><i class="advice-icon icon-water"></i><strong data-advice="1"></strong></article><article><i class="advice-icon icon-rest"></i><strong data-advice="2"></strong></article></div></section>
+            <section class="dash-card trend-card"><div class="card-heading"><span>最近状态趋势</span><small>RECENT 7 RECORDS</small></div><div class="trend-list"><div class="trend-row"><span>状态指数</span><canvas data-viz="trendScore" aria-label="最近七次状态指数趋势"></canvas><strong data-field="statusScore"></strong></div><div class="trend-row"><span>静息脉率</span><canvas data-viz="trendBpm" aria-label="最近七次静息脉率趋势"></canvas><strong><span data-field="bpm"></span><small>BPM</small></strong></div></div><p data-field="trendSummary"></p></section>
+          </div>
+          <div class="dashboard-foot"><span>本页波形为参考生成，实测数据见详情；脉诊需四诊合参，不作为医学诊断依据。</span><button class="detail-trigger" type="button" data-open-details>查看详细数据</button></div>
+        </div>
+
+        <div class="report-content dashboard-content" id="reportContent" hidden>
+          <div class="dashboard-top">
+            <section class="dash-card today-card"><div class="card-heading"><span>今日状态</span><small>TODAY</small></div><div class="today-main"><div class="status-avatar state-good" id="liveStatusAvatar" data-status-avatar aria-hidden="true"><svg viewBox="0 0 120 120"><circle cx="60" cy="60" r="45"/><path d="M42 53c4-5 9-5 13 0M65 53c4-5 9-5 13 0M43 72c10 10 24 10 34 0"/><path class="spark" d="M91 25l3-8 3 8 8 3-8 3-3 8-8-3z"/></svg></div><div><h3 id="stateHeadline" data-field="overallStatus"></h3><p id="stateOneLiner" data-field="overallSubtitle"></p><div class="quick-tags" id="stateTags" data-list="todayTags"></div></div></div></section>
+            <section class="dash-card score-card"><div class="card-heading"><span>今日状态指数</span><small>STATUS INDEX</small></div><div class="score-ring" id="stateScoreRing" data-score-ring><div class="score-value"><strong id="stateIndex" data-field="statusScore">--</strong><span>/ 100</span></div></div><div class="score-caption"><i></i><span id="stateIndexNote" data-field="scoreLabel"></span></div><small class="score-reference">本次状态综合参考</small><div class="state-meter"><span id="stateIndexBar"></span></div></section>
+            <section class="dash-card body-card"><div class="card-heading"><span>状态速览</span><small>STATUS OVERVIEW</small></div><div class="summary-grid"><article class="summary-card"><span class="summary-icon icon-heart" aria-hidden="true"></span><span>心情状态</span><strong data-field="mood"></strong></article><article class="summary-card"><span class="summary-icon icon-breathe" aria-hidden="true"></span><span>放松程度</span><strong data-field="relaxation"></strong></article><article class="summary-card"><span class="summary-icon icon-energy" aria-hidden="true"></span><span>活力状态</span><strong data-field="energy"></strong></article><article class="summary-card"><span class="summary-icon icon-rhythm" aria-hidden="true"></span><span>节律状态</span><strong data-field="rhythm"></strong></article></div></section>
+            <section class="dash-card pulse-summary-card"><div class="card-heading"><span>本次脉象</span><small>PULSE SUMMARY</small></div><div class="pulse-summary-main"><div class="pulse-bpm"><strong data-field="bpm">--</strong><span>次 / 分</span></div><div class="pulse-type" data-field="pulseType"></div></div><div class="pulse-facts"><div><span>节律</span><strong data-field="pulseRhythm"></strong></div><div><span>波幅</span><strong data-field="pulseAmplitude"></strong></div><div><span>稳定</span><strong data-field="pulseStability"></strong></div></div><div class="pulse-summary-bottom"><div class="pulse-keywords" data-list="pulseTags"></div><div class="typical-beat"><span>典型脉搏周期</span><canvas data-viz="typicalBeat" aria-label="典型单次脉搏波形"></canvas></div></div></section>
+          </div>
+          <div class="dashboard-middle">
+            <section class="dash-card wave-section"><div class="card-heading"><span>本次脉搏波形</span><small id="reportWaveLabel"><span data-field="bpm"></span> BPM · PULSE SIGNAL</small></div><canvas id="reportWaveCanvas" data-viz="mainWave" aria-label="本次脉搏波形"></canvas><div class="wave-scale"><span>本次脉搏信号</span><span>8 秒窗口</span></div></section>
+            <section class="dash-card profile-card"><div class="card-heading"><span>脉象画像</span><small>PULSE PROFILE</small></div><canvas data-viz="radar" aria-label="节律、波幅、稳定、清晰、均衡五维脉象画像"></canvas></section>
+            <section class="dash-card positions-card"><div class="card-heading"><span>寸 · 关 · 尺</span><small>THREE POSITIONS</small></div><div class="position-grid" id="positionGrid"><article class="position-card" data-position="cun"><div><h4>寸</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="寸部微型波形"></canvas></div></article><article class="position-card" data-position="guan"><div><h4>关</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="关部微型波形"></canvas></div></article><article class="position-card" data-position="chi"><div><h4>尺</h4><p data-position-status></p></div><div class="position-signal"><div class="relative-bar"><span></span></div><canvas data-position-wave aria-label="尺部微型波形"></canvas></div></article></div></section>
+          </div>
+          <div class="dashboard-bottom">
+            <section class="dash-card interpretation"><div class="card-heading"><span>今日状态解读</span><small>DAILY INSIGHT</small></div><div class="insight-copy" id="interpretationText"><strong data-field="insightTitle"></strong><p data-field="insightDetail"></p><p data-field="insightExtra"></p></div></section>
+            <section class="dash-card advice-section"><div class="card-heading"><span>今日建议</span><small>GENTLE TIPS</small></div><div class="advice-grid" id="adviceList"><article><i class="advice-icon icon-move"></i><strong data-advice="0"></strong></article><article><i class="advice-icon icon-water"></i><strong data-advice="1"></strong></article><article><i class="advice-icon icon-rest"></i><strong data-advice="2"></strong></article></div></section>
+            <section class="dash-card trend-card"><div class="card-heading"><span>最近状态趋势</span><small>RECENT 7 RECORDS</small></div><div class="trend-list"><div class="trend-row"><span>状态指数</span><canvas data-viz="trendScore" aria-label="最近七次状态指数趋势"></canvas><strong data-field="statusScore"></strong></div><div class="trend-row"><span>静息脉率</span><canvas data-viz="trendBpm" aria-label="最近七次静息脉率趋势"></canvas><strong><span data-field="bpm"></span><small>BPM</small></strong></div></div><p data-field="trendSummary"></p></section>
+          </div>
+          <div class="dashboard-foot"><span>本页波形为参考生成，实测数据见详情；脉诊需四诊合参，不作为医学诊断依据。</span><button class="detail-trigger" type="button" data-open-details>查看详细数据</button></div>
+        </div>
+
+        <div class="report-actions" hidden>
+          <button class="button primary" id="reportButton" type="button">生成报告</button>
+          <button class="button ghost" id="saveButton" type="button" disabled>保存本次记录</button>
+          <button class="button ghost" id="printButton" type="button" disabled>打印 / 保存 PDF</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <dialog id="helpDialog">
+    <form method="dialog">
+      <h2>连接提示</h2>
+      <p>与机器人系统共同使用时点击“连接 ROS 数据”；只有不运行 ROS 串口桥时，才使用 Chrome 或 Edge 点击“连接采集器”并选择 ESP32-S3 串口。</p>
+      <p>ROS 共享和 Web Serial 都只读取本机数据，采集内容不会上传。</p>
+      <button class="button primary" value="close">知道了</button>
+    </form>
+  </dialog>
+
+  <dialog id="detailsDialog" class="details-dialog">
+    <div class="details-shell">
+      <div class="details-head"><div><p class="section-kicker">MEASUREMENT DETAILS</p><h2>本次测量详情</h2></div><button class="dialog-close" type="button" data-close-details aria-label="关闭详情">×</button></div>
+      <div id="sampleDetails"><div class="professional-grid"><div class="professional-item"><span>参考脉率</span><strong data-sample-field="bpm"></strong></div><div class="professional-item"><span>节律示意</span><strong data-sample-field="pulseRhythm"></strong></div><div class="professional-item"><span>展示指数</span><strong data-sample-field="statusScore"></strong></div><div class="professional-item"><span>数据来源</span><strong>参考生成</strong></div></div><p class="detail-note">本页波形按人物设定生成，未使用实际采集信号进行病证判断。</p></div>
+      <div id="liveDetails" hidden>
+        <div class="report-date" id="reportDate"></div>
+        <div class="professional-grid" id="professionalGrid"></div><p class="detail-note" id="professionalNote"></p>
+        <div class="quality-card"><div><span>采集质量</span><strong id="qualityScore">—</strong></div><div class="quality-track"><span id="qualityBar"></span></div><p id="qualityText"></p></div>
+        <details id="allWaves" class="all-waves"><summary>查看寸 · 关 · 尺完整原始波形</summary><div id="allWavesContent"></div></details>
+        <details class="technical-details"><summary>查看技术参数</summary><div class="technical-grid" id="technicalGrid"></div></details>
+      </div>
+      <div class="details-actions"><button class="button ghost" id="detailsSaveButton" type="button">保存记录</button><button class="button primary" id="detailsPrintButton" type="button">打印 / 保存 PDF</button></div>
+    </div>
+  </dialog>
+
+  <script src="./app.js?v=20260914-14"></script>
+</body>
+</html>

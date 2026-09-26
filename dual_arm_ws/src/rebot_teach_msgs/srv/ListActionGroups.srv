@@ -1,0 +1,8 @@
+---
+bool success
+string message
+string[] names
+string[] descriptions
+string[] paths
+string[] metadata_json
+string selected_name

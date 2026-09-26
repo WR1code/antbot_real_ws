@@ -1,0 +1,4 @@
+stream,raw_pts_s,invalid_pts_s,invalid_pct,below_min_pts_s,below_min_pct,above_max_pts_s,above_max_pct,angular_removed_pts_s,angular_removed_pct_of_raw,final_pts_s,final_pct_of_raw,angular_only_keep_pct
+front,200009.16,0.00,0.0000,34545.31,17.2719,0.00,0.0000,35306.85,17.6526,130157.00,65.0755,82.3442
+rear,200013.00,0.00,0.0000,48649.54,24.3232,0.00,0.0000,42057.89,21.0276,109305.57,54.6492,78.9724
+combined,400022.16,0.00,0.0000,83194.85,20.7940,0.00,0.0000,77364.74,19.3384,239462.57,59.8675,80.6600

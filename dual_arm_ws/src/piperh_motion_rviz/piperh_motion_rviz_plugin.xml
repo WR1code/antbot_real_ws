@@ -1,0 +1,11 @@
+<library path="piperh_motion_rviz_plugin">
+  <class
+    name="piperh_motion_rviz/MotionPresetPanel"
+    type="piperh_motion_rviz::MotionPresetPanel"
+    base_class_type="rviz_common::Panel">
+    <description>
+      Capture Piper-H joint positions as named motion points, edit ordered motion
+      groups, execute them through MoveIt, and show progress.
+    </description>
+  </class>
+</library>

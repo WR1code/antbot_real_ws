@@ -1,0 +1,10 @@
+{
+  "format": "rebot_teach_action_sequence",
+  "version": 1,
+  "name": "1",
+  "robot_model": "rebotarm_dm",
+  "action_names": [
+    "示教动作_20260830_150340_320443",
+    "示教动作_20260830_150340_320443"
+  ]
+}

@@ -11,7 +11,9 @@
 #include <QFrame>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QDir>
 #include <QEvent>
+#include <QFileDialog>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QHeaderView>
@@ -474,20 +476,22 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
   control_stack_->setCurrentWidget(xbox_box);
   operation_root->addWidget(control_stack_);
 
-  auto * mapping_box = new QGroupBox(tr("二维建图（当前 RViz 内显示）"), this);
+  auto * mapping_box = new QGroupBox(tr("建图（SLAM / MID360 LIO）"), this);
   auto * mapping_layout = new QVBoxLayout(mapping_box);
   mapping_status_ = new QLabel(
-    tr("等待建图管理器；开始前需要 /scan_0 雷达数据。"), mapping_box);
+    tr("等待建图管理器；输入合同和 TF 将在启动前检查。"), mapping_box);
   mapping_status_->setWordWrap(true);
   auto * mapping_buttons = new QHBoxLayout();
   mapping_start_button_ = new QPushButton(tr("开始建图"), mapping_box);
   mapping_stop_button_ = new QPushButton(tr("停止建图"), mapping_box);
   mapping_save_button_ = new QPushButton(tr("保存当前地图"), mapping_box);
+  mapping_output_button_ = new QPushButton(tr("选择保存路径…"), mapping_box);
   mapping_buttons->addWidget(mapping_start_button_);
   mapping_buttons->addWidget(mapping_stop_button_);
   mapping_buttons->addWidget(mapping_save_button_);
   mapping_layout->addWidget(mapping_status_);
   mapping_layout->addLayout(mapping_buttons);
+  mapping_layout->addWidget(mapping_output_button_);
   operation_root->addWidget(mapping_box);
   connect(mapping_start_button_, &QPushButton::clicked, this, [this]() {
     setMappingEnabled(true);
@@ -496,6 +500,9 @@ VehicleStatusPanel::VehicleStatusPanel(QWidget * parent)
     setMappingEnabled(false);
   });
   connect(mapping_save_button_, &QPushButton::clicked, this, &VehicleStatusPanel::saveMapping);
+  connect(
+    mapping_output_button_, &QPushButton::clicked,
+    this, &VehicleStatusPanel::chooseMappingOutput);
 
   auto * camera_box = new QGroupBox(tr("车载 RGB 摄像头"), this);
   auto * camera_layout = new QVBoxLayout(camera_box);
@@ -563,6 +570,7 @@ void VehicleStatusPanel::onInitialize()
     mapping_start_button_->setEnabled(false);
     mapping_stop_button_->setEnabled(false);
     mapping_save_button_->setEnabled(false);
+    mapping_output_button_->setEnabled(false);
     return;
   }
 
@@ -579,6 +587,8 @@ void VehicleStatusPanel::onInitialize()
     "/antbot/mapping/save");
   keyboard_cmd_pub_ = node_->create_publisher<geometry_msgs::msg::Twist>(
     "/antbot/cmd_vel/keyboard", 10);
+  mapping_output_pub_ = node_->create_publisher<std_msgs::msg::String>(
+    "/antbot/mapping/output_prefix", 10);
   odometry_sub_ = node_->create_subscription<nav_msgs::msg::Odometry>(
     "/odometry/filtered", rclcpp::SensorDataQoS(),
     std::bind(&VehicleStatusPanel::handleOdometry, this, std::placeholders::_1));
@@ -793,6 +803,9 @@ void VehicleStatusPanel::setMappingEnabled(bool enabled)
   request->data = enabled;
   mapping_start_button_->setEnabled(false);
   mapping_stop_button_->setEnabled(false);
+  if (enabled) {
+    mapping_output_button_->setEnabled(false);
+  }
   mapping_enable_client_->async_send_request(
     request,
     [this](rclcpp::Client<std_srvs::srv::SetBool>::SharedFuture future) {
@@ -833,6 +846,41 @@ void VehicleStatusPanel::saveMapping()
         mapping_save_button_->setEnabled(true);
       }, Qt::QueuedConnection);
     });
+}
+
+void VehicleStatusPanel::chooseMappingOutput()
+{
+  if (!node_ || !mapping_output_pub_) {
+    mapping_status_->setText(tr("保存路径服务未就绪"));
+    mapping_status_->setStyleSheet(QStringLiteral("color: #d32f2f;"));
+    return;
+  }
+  const bool fast_lio = mapping_backend_ == QStringLiteral("fast_lio");
+  const QString suffix = fast_lio ? QStringLiteral(".pcd") : QStringLiteral(".yaml");
+  const QString filter = fast_lio ?
+    tr("PCD 点云地图 (*.pcd);;所有文件 (*)") :
+    tr("Nav2 地图 YAML (*.yaml);;所有文件 (*)");
+  QString initial = mapping_output_prefix_;
+  if (initial.isEmpty()) {
+    initial = QDir::homePath() + QStringLiteral("/antbot_map");
+  }
+  if (!initial.endsWith(suffix, Qt::CaseInsensitive)) {
+    initial += suffix;
+  }
+  QString selected = QFileDialog::getSaveFileName(
+    this, tr("选择地图保存路径"), initial, filter);
+  if (selected.isEmpty()) {
+    return;
+  }
+  if (!selected.endsWith(suffix, Qt::CaseInsensitive)) {
+    selected += suffix;
+  }
+  std_msgs::msg::String message;
+  message.data = selected.toStdString();
+  mapping_output_pub_->publish(message);
+  mapping_output_button_->setEnabled(false);
+  mapping_status_->setText(tr("正在更新保存路径：%1").arg(selected));
+  mapping_status_->setStyleSheet(QStringLiteral("color: #1565c0;"));
 }
 
 void VehicleStatusPanel::requestSafetyEnable()
@@ -1258,6 +1306,8 @@ void VehicleStatusPanel::handleOperatorUiStatus(
     const int scan_publishers = object.value("scan_publishers").toInt(0);
     const bool mapping_running = object.value("mapping_running").toBool(false);
     const QString mapping_error = object.value("mapping_error").toString();
+    const QString mapping_backend = object.value("mapping_backend").toString("slam_toolbox");
+    const bool mapping_start_ready = object.value("mapping_start_ready").toBool(false);
     xbox_mode_button_->blockSignals(true);
     keyboard_mode_button_->blockSignals(true);
     xbox_mode_button_->setChecked(mode == "xbox");
@@ -1315,25 +1365,37 @@ void VehicleStatusPanel::handleOperatorUiStatus(
 
     const QString scan_topic = object.value("scan_topic").toString("/scan_0");
     const QString output = object.value("mapping_output_prefix").toString();
+    mapping_backend_ = mapping_backend;
+    mapping_output_prefix_ = output;
+    const bool fast_lio = mapping_backend == "fast_lio";
+    const QString backend_label = fast_lio ?
+      tr("MID360 FAST-LIO（三维）") : tr("SLAM Toolbox（二维）");
+    const QString input_label = fast_lio ?
+      tr("Livox CustomMsg + 单点时间戳/IMU deskew") :
+      tr("%1 发布者 %2").arg(scan_topic).arg(scan_publishers);
+    const QString output_suffix = fast_lio ? QStringLiteral(".pcd") : QStringLiteral(".yaml");
     if (!mapping_error.isEmpty()) {
-      mapping_status_->setText(tr("%1\n日志/输出：%2").arg(mapping_error, output));
+      mapping_status_->setText(
+        tr("%1 · %2\n日志/输出：%3")
+        .arg(backend_label, mapping_error, output));
       mapping_status_->setStyleSheet(QStringLiteral("color: #d32f2f;"));
     } else if (mapping_running) {
       mapping_status_->setText(
-        tr("建图运行中 · %1 发布者 %2\n保存目标：%3.yaml")
-        .arg(scan_topic).arg(scan_publishers).arg(output));
+        tr("%1 运行中 · %2\n保存目标：%3%4")
+        .arg(backend_label, input_label, output, output_suffix));
       mapping_status_->setStyleSheet(QStringLiteral("color: #2e7d32;"));
     } else {
       mapping_status_->setText(
-        tr("建图未启动 · %1 发布者 %2\n保存目标：%3.yaml")
-        .arg(scan_topic).arg(scan_publishers).arg(output));
+        tr("%1 未启动 · %2\n保存目标：%3%4")
+        .arg(backend_label, input_label, output, output_suffix));
       mapping_status_->setStyleSheet(
-        scan_publishers > 0 ? QStringLiteral("color: #1565c0;") :
+        mapping_start_ready ? QStringLiteral("color: #1565c0;") :
         QStringLiteral("color: #ef6c00;"));
     }
-    mapping_start_button_->setEnabled(!mapping_running && scan_publishers > 0);
+    mapping_start_button_->setEnabled(!mapping_running && mapping_start_ready);
     mapping_stop_button_->setEnabled(mapping_running);
     mapping_save_button_->setEnabled(mapping_running);
+    mapping_output_button_->setEnabled(!mapping_running);
   }, Qt::QueuedConnection);
 }
 

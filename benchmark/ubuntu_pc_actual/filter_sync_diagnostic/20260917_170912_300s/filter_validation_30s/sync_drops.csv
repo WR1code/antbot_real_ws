@@ -1,0 +1,9 @@
+reason,dropped_sensor,dropped_frame_index,dropped_header_ns,best_abs_delta_ms
+timestamp_delta,front,1,1789637019146582643,1501.170427
+timestamp_delta,rear,12,1789637020647753070,99.314083
+timestamp_delta,rear,20,1789637021447696006,99.386208
+timestamp_delta,rear,55,1789637036847429213,100.435602
+timestamp_delta,front,57,1789637042747752255,99.489135
+timestamp_delta,rear,60,1789637042847241390,499.409641
+timestamp_delta,front,58,1789637043346651031,400.530649
+timestamp_delta,rear,59,1789637043747181680,2700.472082

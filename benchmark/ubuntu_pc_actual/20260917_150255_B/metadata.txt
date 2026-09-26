@@ -1,0 +1,5 @@
+stage=B
+duration_s=300
+driver_pid=1160570
+front_topic=/livox/lidar_192_168_1_116
+rear_topic=/livox/lidar_192_168_1_139

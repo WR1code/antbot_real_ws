@@ -1,0 +1,57 @@
+rebot_xbox_twist:
+  ros__parameters:
+    device: "/dev/input/js0"
+    axes:
+      linear_x: 1
+      linear_y: 0
+      linear_z: 4
+      angular_yaw: 3
+      angular_pitch: 7
+    buttons:
+      toggle_arm: 0
+      emergency_stop: 7
+      roll_left: 4
+      roll_right: 5
+      speed_down: 9
+      speed_up: 10
+      frame_switch: 6
+      control_switch: 8
+    invert:
+      linear_x: false
+      linear_y: false
+      linear_z: false
+      angular_yaw: false
+      angular_pitch: true
+    limits:
+      linear_speed: 0.10
+      angular_speed: 0.60
+      minimum_linear_speed: 0.006
+      maximum_linear_speed: 0.10
+      minimum_angular_speed: 0.06
+      maximum_angular_speed: 0.60
+    speed:
+      levels: [0.20, 0.50, 1.00]
+    safety:
+      deadzone: 0.10
+      joy_timeout: 0.30
+      require_centered_sticks_to_arm: true
+      # Piper-H has no gripper, so its mapping intentionally has no LT/RT axes.
+      require_released_triggers_to_arm: false
+      publish_rate: 20.0
+      shutdown_zero_frames: 5
+    frames:
+      base: "base_link"
+      end_effector: "Link6"
+    topics:
+      joy: "/joy"
+      twist: "/servo_node/delta_twist_cmds"
+      armed: "/piperh_xbox/armed"
+      control_target: "/piperh_xbox/control_target"
+      preset_service: "/piperh_xbox/go_to_preset"
+      servo_switch_service: "/servo_node/switch_command_type"
+      servo_pause_service: "/servo_node/pause_servo"
+
+inspect_joy:
+  ros__parameters:
+    joy_topic: "/joy"
+    noise_threshold: 0.05

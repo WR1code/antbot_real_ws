@@ -35,6 +35,7 @@ def generate_launch_description():
     allow_disconnected = LaunchConfiguration("allow_disconnected")
     default_teleop_mode = LaunchConfiguration("default_teleop_mode")
     mapping_output_prefix = LaunchConfiguration("mapping_output_prefix")
+    mapping_backend = LaunchConfiguration("mapping_backend")
 
     description_launch = os.path.join(
         get_package_share_directory("antbot_description"),
@@ -60,7 +61,7 @@ def generate_launch_description():
         parameters=[{
             "port": port,
             "baud": 115200,
-            "topic": "/cmd_vel",
+            "topic": "/antbot/base/authorized_cmd_vel",
             "status_topic": "/rs00/motor_status",
             "max_linear_speed": ParameterValue(
                 max_linear_speed, value_type=float
@@ -87,6 +88,19 @@ def generate_launch_description():
                 max_linear_speed, value_type=float
             ),
             "mapping_output_prefix": mapping_output_prefix,
+            "mapping_backend": mapping_backend,
+            "mapping_front_ip": LaunchConfiguration("mapping_front_ip"),
+            "mapping_rear_ip": LaunchConfiguration("mapping_rear_ip"),
+            "mapping_lidar_interface": LaunchConfiguration(
+                "mapping_lidar_interface"
+            ),
+            "manage_mapping_network": ParameterValue(
+                LaunchConfiguration("manage_mapping_network"), value_type=bool
+            ),
+            "publish_mapping_placeholder_pose": ParameterValue(
+                LaunchConfiguration("publish_mapping_placeholder_pose"),
+                value_type=bool,
+            ),
         }],
     )
 
@@ -140,7 +154,21 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "mapping_output_prefix",
-            default_value="/tmp/antbot_mapping/map",
+            default_value=os.path.join(
+                os.environ.get("ANTBOT_REAL_WS", "/tmp/antbot_real_ws"),
+                "artifacts", "maps", "mapping_runs", "current", "map",
+            ),
+        ),
+        DeclareLaunchArgument(
+            "mapping_backend", default_value="slam_toolbox",
+            choices=["slam_toolbox", "fast_lio"],
+        ),
+        DeclareLaunchArgument("mapping_front_ip", default_value="192.168.1.116"),
+        DeclareLaunchArgument("mapping_rear_ip", default_value="192.168.1.139"),
+        DeclareLaunchArgument("mapping_lidar_interface", default_value="eno1"),
+        DeclareLaunchArgument("manage_mapping_network", default_value="false"),
+        DeclareLaunchArgument(
+            "publish_mapping_placeholder_pose", default_value="false"
         ),
         model,
         operator_manager,

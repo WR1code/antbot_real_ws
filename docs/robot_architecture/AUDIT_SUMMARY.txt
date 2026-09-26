@@ -1,0 +1,31 @@
+==============================
+ROBOT ARCHITECTURE AUDIT
+==============================
+Phase 0 current-source refresh: 2026-09-26 (HEAD ad487d3 with dirty worktree).
+Current evidence: docs/robot_architecture/PHASE0_REFRESH_2026-09-26.md
+Phase 1 offline result: docs/robot_architecture/PHASE1_OFFLINE_REPORT_2026-09-26.md
+The 2026-09-15 counts below and Phase 0 findings are retained as historical,
+pre-change evidence; consult the Phase 1 report for post-change status.
+
+Hardware discovered: 17 inventory rows (source CONFIRMED 11, LIKELY 4, UNKNOWN 2; not physical count)
+ROS packages: 47 manifests / 45 unique names
+ROS nodes: 73 Python direct Node classes + 19 C++ Node classes; runtime UNKNOWN
+Topics: 216 unique Python expressions; resolved runtime UNKNOWN
+Services: 110 unique Python expressions; resolved runtime UNKNOWN
+Actions: 12 unique Python expressions; resolved runtime UNKNOWN
+Hardware control paths: 9 traced chain groups (includes read-only sensor data paths)
+Potential control conflicts: 7 conditional scenarios
+P0 issues: 3
+P1 issues: 6
+Unknown interfaces: 256 dynamic Python interface call sites need resolution; physical/runtime boundaries UNKNOWN
+
+当前架构：已有总launch与局部门禁的底盘/双臂/把脉组合，尚无整机任务READY与强制ownership闭环。
+最大5问题：writer仲裁不全；自动enable/退出回家；cancel停稳互锁缺失；健康/故障传播未统一；真机odom/身份验证缺失。
+最危险控制冲突：Piper Action与Servo同时进入_publish_driver，以及vendor旁路。
+先改一个地方：Piper最终adapter Action/Servo互斥并封闭vendor旁路；另优先复核reBot使能与退出语义。
+一命令启动还缺：幂等设备准备、受控初始化、健康READY、能力激活/降级、安全退出。
+底盘/双臂切换还缺：强制lease/epoch、cancel终态、停稳证据、safe/retract闭环、freshness/fault传播。
+Supervisor：轻量Supervisor + ResourceManager + health adapters，Service租约、Action任务/模式，保留当前SDK。
+改造顺序：安全入口→设备/健康→ownership→Supervisor→bringup→odom/任务联动→故障恢复。
+Phase 0 inventory was documentation-only. The subsequent Phase 1 work changed
+software safety gates and was verified offline; no hardware was accessed or moved.

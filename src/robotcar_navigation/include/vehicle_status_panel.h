@@ -64,6 +64,7 @@ private:
   void selectTeleopMode(bool use_xbox);
   void setMappingEnabled(bool enabled);
   void saveMapping();
+  void chooseMappingOutput();
   void setButtonMotion(int forward, int left);
   void clearButtonMotion();
   void subscribeCameraTopic();
@@ -78,6 +79,7 @@ private:
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr extended_status_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr operator_ui_status_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr keyboard_cmd_pub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr mapping_output_pub_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr operator_enable_client_;
   rclcpp::Client<std_srvs::srv::Trigger>::SharedPtr system_reset_client_;
   rclcpp::Client<std_srvs::srv::SetBool>::SharedPtr teleop_mode_client_;
@@ -120,7 +122,10 @@ private:
   QPushButton * mapping_start_button_;
   QPushButton * mapping_stop_button_;
   QPushButton * mapping_save_button_;
+  QPushButton * mapping_output_button_;
   QLabel * mapping_status_;
+  QString mapping_output_prefix_;
+  QString mapping_backend_ = QStringLiteral("slam_toolbox");
 
   QSet<int> pressed_keys_;
   int button_forward_ = 0;

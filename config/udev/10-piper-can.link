@@ -1,0 +1,7 @@
+# Optional persistent SocketCAN name. Install only while robot services are stopped.
+[Match]
+Property=ID_VENDOR_ID=1d50 ID_MODEL_ID=606f ID_SERIAL_SHORT=001D00354648571720303731
+
+[Link]
+NamePolicy=
+Name=piper_can

@@ -1,9 +1,113 @@
 # AntBot Orin 真机工作区
 
+双臂真机一键启动：`bash start_dual_arm.sh`。原 rebotarm 工作空间依赖已独立复制到
+`dual_arm_ws`；迁移到其他路径/机器的安装和构建方法见 [双臂独立运行说明](docs/DUAL_ARM_PORTABLE.md)。
+
 这是以 `antbot_real_ws` 为唯一运行源的 AntBot 真机工作区。它可以整体复制到
 NVIDIA Jetson Orin Nano，模型、RViz2 配置、地图、操作界面和 H743 底层均从本仓库
 加载，不依赖 `/home/w/project/antbot`，也不会启动 Isaac Sim、Gazebo、
 `fake_hardware` 或原厂底盘 `ros2_control`。
+双 MID360/FAST-LIO 所需的项目级依赖位于本仓库 `third_party/`，不会读取
+`/home/w/project/odas` 或其他开发工作区。系统级 ROS 2 和共享库仍由
+`/opt/ros/jazzy`、`/usr`、`/lib` 提供。
+
+## 日常使用：整机总启动
+
+已安装并构建的本机，日常只运行下面这一组命令，保持这个终端开启：
+
+```bash
+cd /home/w/project/antbot_real_ws
+bash start_dual_arm.sh
+```
+
+总入口统一启动双臂真机工作台、底盘控制界面、把脉网页和压力采集。
+内部已禁用重复的把脉服务，不需要再开三个启动终端。
+网页需在浏览器手动打开：
+
+- 实时采集：<http://127.0.0.1:8765/>
+- 智能脉象评估：<http://127.0.0.1:8765/#report>
+
+启动前先连接硬件，停止此前独立运行的底盘、双臂、网页和压力采集进程。
+同一串口只能有一个采集/控制进程。总入口不会代替底盘与机械臂的人工安全确认；
+确认急停、环境及设备状态后，仍需通过各自的安全门禁才能运动。
+
+停止整机：在总启动终端按 `Ctrl+C`，等待子进程退出后再重启。
+双臂工作台的 RViz 配置为自动重启，关闭窗口不等于停止整机。
+
+### 必须确认的串口配置
+
+机械臂、压力采集板和 H743 必须使用不同的设备地址。
+查看本机稳定设备路径：
+
+```bash
+ls -l /dev/serial/by-id/
+```
+
+当前默认配置：
+
+- 压力采集板：`/dev/robot_serial`，udev 按 VID `1a86`、PID `55d3`、序列号 `5CF9120157` 绑定。
+- H743 底盘：`/dev/serial/by-id/usb-1a86_USB_Single_Serial_5CE6063665-if00`
+- reBotArm：`rebot_channel` 默认 `/dev/rebot_can`，仅供机械臂专用。
+
+摄像头与 Piper-H 同样按硬件身份选择：
+
+- Orbbec Gemini：VID/PID `2bc5:0670`，序列号 `AY6R46300KN`。
+  总启动设置 `ANTBOT_CAMERA_SERIAL`，Gemini 驱动默认按此序列号选相机，
+  不依赖 `/dev/videoN` 或 USB 插口。更换相机可覆盖该环境变量。
+  摄像头仍通过界面开启，不会仅因身份绑定自动启动图像采集。
+- Piper-H USB-CAN：VID/PID `1d50:606f`，序列号 `001D00354648571720303731`。
+  总启动调用 `scripts/find_piper_can.py` 寻找对应网络接口，
+  无论接口名是 `can0` 还是其他名字。未找到时不会误选别的 CAN 适配器。
+  手动传入 `piper_channel:=接口名` 可覆盖总启动的识别结果。
+
+可选：将 Piper 网络接口名称也固定为 `piper_can`。先停止所有机器人服务，执行：
+
+```bash
+sudo install -m 0644 config/udev/10-piper-can.link /etc/systemd/network/10-piper-can.link
+sudo udevadm control --reload-rules
+```
+
+然后安全拔插 Piper USB-CAN，再用 `ip -details link show piper_can` 检查。
+此系统规则尚未由助手安装（需要 sudo 密码）；总启动按序列号识别不依赖这一步。
+现有 `piper-can@.service` 负责按 1 Mbit/s 配置总线，接口改名后仍按实际接口名启动。
+
+**注意：本机此前检查时，压力采集板也指向 `/dev/ttyACM2`。**
+现已将机械臂默认端口改为 `/dev/rebot_can`，不再占用压力板。
+这个专用别名的 udev 规则尚未建立；别名不存在时机械臂不可用，
+但不会因此把压力板当作机械臂。后续确认机械臂真实硬件身份后再建立规则。
+确认后可在同一条总启动命令中覆盖配置（下面是模板，勿原样执行）：
+
+```bash
+bash start_dual_arm.sh rebot_channel:=/dev/serial/by-id/实际机械臂设备
+```
+
+压力板和 H743 更换设备时，可分别设置 `ANTBOT_PULSE_PORT`、`RS00_UART_PORT`。
+启动参数示例及迁移安装步骤见 [双臂独立运行说明](docs/DUAL_ARM_PORTABLE.md)。
+
+### 常见启动问题
+
+- 网页打不开：确认总启动终端没有退出，检查是否有 `pulse_web_gateway` 启动错误。
+- 8765 端口冲突：先停止旧网页服务；可用 `ss -ltnp 'sport = :8765'` 查看监听者。
+- 网页显示“等待数据”：检查终端是否提示串口冲突、串口打开失败或采集进程退出。
+  串口成功打开不等于采集板已经发送有效样本。
+- 重插压力板：先 `Ctrl+C` 停止总启动，再拔插 USB、等待设备出现并重新启动；
+  不要额外启动第二个串口采集进程。
+
+仅诊断 ROS 压力数据时，在另一个终端执行以下只读检查，不会打开第二份串口：
+
+```bash
+cd /home/w/project/antbot_real_ws
+source activate.sh
+timeout 8 ros2 topic echo /piperh/pulse/raw/s1/pressure --once
+```
+
+8 秒内没有样本时，应继续检查采集板发送、串口配置及采集日志，不要将其视为报告数据正常。
+
+### 首次安装与源码更新
+
+已构建的日常使用无需每次安装或编译。首次部署或修改 ROS 源码后，按
+[双臂独立运行说明](docs/DUAL_ARM_PORTABLE.md) 安装依赖并运行 `bash build_dual_arm.sh`。
+该构建入口同时处理底盘和双臂两个工作空间；构建完成后再运行总启动命令。
 
 ## 当前可用范围
 
@@ -48,6 +152,17 @@ antbot_real_ws/
 `antbot_swerve_controller` 和旧 `antbot_bringup`，防止真机上同时启动两个底盘
 控制实现。
 
+## 把脉与健康状态大屏
+
+把脉源码位于 `src/rebotarm_pulse/`，网页展示副本与历史压缩包位于
+`artifacts/pulse/`。独立网页/压力采集启动、目录用途及机械臂依赖边界见
+[把脉工作空间说明](docs/PULSE_WORKSPACE.md)。日常整机使用上方的 `bash start_dual_arm.sh`。
+下面及“本机验证”中的入口仅用于分项调试，不要与总启动同时运行。
+`./scripts/start_antbot_operator.sh` 仅启动底盘界面与把脉服务，不启动双臂，
+默认同时启动把脉网页与压力采集；关闭 RViz 或 Ctrl+C 时一起退出。
+启动前请关闭此前独立运行的网页/压力采集终端，避免端口冲突。
+仅启动底盘时可使用 `ANTBOT_START_PULSE=false ./scripts/start_antbot_operator.sh`。
+
 ## 本机验证
 
 ```bash
@@ -77,7 +192,7 @@ export RS00_UART_PORT=/dev/serial/by-id/你的H743_USB-TTL
 `1.0 rad/s` 的逆/顺时针原地旋转。脚本会忽略触摸屏等错误生成
 的 `/dev/input/js*` 设备；如果连接了多个手柄，请设置 `ANTBOT_JOY_DEVICE`。
 
-启动本仓库自带的完整航点控制界面、GK4XC 实车模型和 H743 底层：
+分项调试：仅启动完整航点控制界面、GK4XC 实车模型、H743 底层及把脉服务（不含双臂）：
 
 ```bash
 ./scripts/start_antbot_operator.sh

@@ -20,7 +20,9 @@
       <visual>
         <origin xyz="0.2754 0 0.6430" rpy="0 -1.57079632679 0"/>
         <geometry>
-          <mesh filename="package://antbot_description/meshes/gk4xc_001_003_full.stl"
+          <!-- The fixed CAD Piper-H is intentionally omitted. Its live URDF
+               is mounted by dual_arm_hardware.launch.py at the real pose. -->
+          <mesh filename="package://antbot_description/meshes/gk4xc_001_003_without_piperh.stl"
                 scale="0.001 0.001 0.001"/>
         </geometry>
         <material name="gk4xc_metal">

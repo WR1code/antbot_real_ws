@@ -1,7 +1,7 @@
 h743_cmd_vel_bridge:
   ros__parameters:
     baud: 115200
-    topic: /cmd_vel
+    topic: /antbot/base/authorized_cmd_vel
     status_topic: /rs00/motor_status
     max_linear_speed: 1.50
     telemetry_period: 0.20
@@ -23,7 +23,7 @@ antbot_operator_manager:
     xbox_cmd_topic: /antbot/cmd_vel/xbox
     keyboard_cmd_topic: /antbot/cmd_vel/keyboard
     joy_topic: /joy
-    output_cmd_topic: /cmd_vel
+    output_cmd_topic: /antbot/base/authorized_cmd_vel
     command_timeout: 0.35
     scan_topic: /scan_0
     mapping_topic: /antbot/mapping/map

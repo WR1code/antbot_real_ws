@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="piperh">
+  <xacro:arg name="initial_positions_file" default="$(find piperh_moveit_config)/config/initial_positions.yaml"/>
+  <xacro:arg name="root_frame" default="world"/>
+  <xacro:arg name="mount_x" default="0.0"/>
+  <xacro:arg name="mount_y" default="0.0"/>
+  <xacro:arg name="mount_z" default="0.0"/>
+  <xacro:arg name="mount_roll" default="0.0"/>
+  <xacro:arg name="mount_pitch" default="0.0"/>
+  <xacro:arg name="mount_yaw" default="0.0"/>
+  <!-- The plain Piper-H URDF is the official six-joint, no-gripper model. -->
+  <xacro:include filename="$(find piper_h_description)/urdf/piper_h_description.urdf"/>
+  <xacro:include filename="$(find piperh_moveit_config)/config/piperh.ros2_control.xacro"/>
+
+  <!-- KDL cannot use a root link that carries inertia. Keep base_link's physical
+       properties and place a massless fixed frame above it instead. -->
+  <link name="$(arg root_frame)"/>
+  <joint name="world_to_base" type="fixed">
+    <origin
+      xyz="$(arg mount_x) $(arg mount_y) $(arg mount_z)"
+      rpy="$(arg mount_roll) $(arg mount_pitch) $(arg mount_yaw)"/>
+    <parent link="$(arg root_frame)"/>
+    <child link="base_link"/>
+  </joint>
+
+  <!-- Conservative envelope for the installed three-sensor pulse module.
+       The measured J6 mounting-face to sensor-tip distance is 115.99 mm and
+       the measured maximum front width is 32.53 mm. Local +Z points outward. -->
+  <link name="pulse_tool_envelope">
+    <visual>
+      <origin xyz="0 0 0.057995" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.016265" length="0.11599"/></geometry>
+      <material name="pulse_tool_green"><color rgba="0.35 0.85 0.35 0.45"/></material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0.057995" rpy="0 0 0"/>
+      <geometry><cylinder radius="0.016265" length="0.11599"/></geometry>
+    </collision>
+  </link>
+  <joint name="pulse_tool_mount" type="fixed">
+    <!-- +90 deg about Link6 +Z; the old mount was the identity rotation. -->
+    <origin xyz="0 0 0" rpy="0 0 1.57079632679"/>
+    <parent link="Link6"/>
+    <child link="pulse_tool_envelope"/>
+  </joint>
+  <link name="pulse_tip_center"/>
+  <joint name="pulse_tip_center_joint" type="fixed">
+    <origin xyz="0 0 0.11599" rpy="0 0 0"/>
+    <parent link="pulse_tool_envelope"/>
+    <child link="pulse_tip_center"/>
+  </joint>
+
+  <xacro:piperh_ros2_control
+    name="PiperHNoGripperMockSystem"
+    initial_positions_file="$(arg initial_positions_file)"/>
+</robot>

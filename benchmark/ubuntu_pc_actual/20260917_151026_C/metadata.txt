@@ -1,0 +1,10 @@
+stage=C
+duration_sec=300
+driver_pid=1160570
+relay_pid=1168785
+fusion_pid=1168996
+description_pid=1168637
+front_ip=192.168.1.116
+rear_ip=192.168.1.139
+start_iso=2026-09-17T15:11:25+08:00
+end_iso=2026-09-17T15:16:25+08:00

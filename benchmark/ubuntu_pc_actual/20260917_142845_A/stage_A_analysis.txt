@@ -1,0 +1,52 @@
+----------------------------------------
+A. Idle baseline (60 seconds)
+----------------------------------------
+
+Valid one-second samples: 59
+
+System CPU:
+average: 2.16 %
+P95: 6.53 %
+peak: 7.07 %
+
+RAM (MemTotal - MemAvailable):
+average: 19951524.54 KiB (19.03 GiB)
+peak: 20170864 KiB (19.24 GiB)
+total: 65644560 KiB (62.60 GiB)
+
+Per-logical-CPU utilization:
+CPU    average %    P95 %    peak %
+  0        1.63      3.92      4.81
+  1        0.20      1.98      2.88
+  2        2.35      4.85      5.88
+  3        0.70      1.98      5.83
+  4        2.69      5.83      6.73
+  5        0.23      0.98      2.91
+  6        2.85      5.88      8.65
+  7        0.33      1.94      2.91
+  8        7.68     33.01     50.50
+  9        0.64      2.94      4.85
+ 10        7.76     29.13     41.75
+ 11        0.43      1.94      2.91
+ 12        3.66     13.73     15.38
+ 13        0.07      0.96      1.94
+ 14        3.15      8.65     20.00
+ 15        0.08      0.96      1.94
+ 16        2.43      4.90      7.77
+ 17        2.06      3.88      6.86
+ 18        1.66      2.94      3.88
+ 19        1.62      3.85      4.81
+ 20        2.44      4.85      5.88
+ 21        2.16      4.81      5.71
+ 22        3.06      5.88      6.86
+ 23        2.79      4.90      5.77
+
+No logical CPU was persistently near 100% during stage A. The highest average
+was CPU 10 at 7.76%; the highest one-second sample was CPU 8 at 50.50%.
+
+Raw evidence:
+- system.csv
+- process.csv
+- network.csv
+- topics.csv
+- summary.txt

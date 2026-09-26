@@ -1,0 +1,20 @@
+Platform: Ubuntu x86_64 PC
+CPU model: 13th Gen Intel(R) Core(TM) i7-13700KF
+Physical cores: 16
+Logical CPUs: 24
+CPU maximum frequency: 5400 MHz
+RAM total: 65644560 KiB (62.60 GiB)
+Ubuntu: Ubuntu 24.04.4 LTS (noble)
+Kernel: 7.0.0-28-generic
+ROS distribution: Jazzy
+Architecture: x86_64
+GPU (record only): NVIDIA AD102 [GeForce RTX 4090 D]
+
+ROS graph before stage A:
+- /parameter_events
+- /rosout
+- /handeye_rqt_calibrator (pre-existing unrelated node)
+
+Livox driver: not installed or not visible in sourced prefixes
+Fusion node: not running
+RViz/SLAM/Nav2: not running

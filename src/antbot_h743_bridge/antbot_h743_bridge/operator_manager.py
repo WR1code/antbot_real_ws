@@ -10,14 +10,16 @@ import re
 import signal
 import subprocess
 import time
+import uuid
 
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import TransformStamped, Twist, TwistStamped
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 from std_srvs.srv import SetBool, Trigger
+from tf2_ros import TransformBroadcaster
 
 
 TELEOP_MODES = ("xbox", "keyboard")
@@ -87,7 +89,7 @@ def discover_gamepad(configured_device: str = "auto") -> tuple[str, str]:
 
 
 class OperatorManager(Node):
-    """Multiplex operator inputs and manage an embedded SLAM Toolbox child."""
+    """Multiplex operator inputs and manage the selected mapping child."""
 
     def __init__(self) -> None:
         super().__init__("antbot_operator_manager")
@@ -97,14 +99,30 @@ class OperatorManager(Node):
         self.declare_parameter("joy_topic", "/joy")
         self.declare_parameter("manage_joy", True)
         self.declare_parameter("joy_device", "auto")
-        self.declare_parameter("output_cmd_topic", "/cmd_vel")
+        self.declare_parameter(
+            "output_cmd_topic", "/antbot/base/authorized_cmd_vel"
+        )
+        self.declare_parameter(
+            "authority_topic", "/antbot/base/command_authority"
+        )
+        self.declare_parameter("authority_lease_seconds", 0.40)
         self.declare_parameter("max_linear_speed", 0.10)
         self.declare_parameter("command_timeout", 0.35)
         self.declare_parameter("scan_topic", "/scan_0")
         self.declare_parameter("mapping_topic", "/antbot/mapping/map")
+        self.declare_parameter("mapping_backend", "slam_toolbox")
         self.declare_parameter(
-            "mapping_output_prefix", "/tmp/antbot_mapping/map"
+            "mapping_output_prefix",
+            os.path.join(
+                os.environ.get("ANTBOT_REAL_WS", "/tmp/antbot_real_ws"),
+                "artifacts", "maps", "mapping_runs", "current", "map",
+            ),
         )
+        self.declare_parameter("mapping_front_ip", "192.168.1.116")
+        self.declare_parameter("mapping_rear_ip", "192.168.1.139")
+        self.declare_parameter("mapping_lidar_interface", "eno1")
+        self.declare_parameter("manage_mapping_network", False)
+        self.declare_parameter("publish_mapping_placeholder_pose", False)
 
         mode = str(self.get_parameter("default_teleop_mode").value).lower()
         if mode not in TELEOP_MODES:
@@ -118,8 +136,29 @@ class OperatorManager(Node):
         )
         self.scan_topic = str(self.get_parameter("scan_topic").value)
         self.mapping_topic = str(self.get_parameter("mapping_topic").value)
+        self.mapping_backend = str(
+            self.get_parameter("mapping_backend").value
+        ).lower()
+        if self.mapping_backend not in ("slam_toolbox", "fast_lio"):
+            raise ValueError("mapping_backend must be slam_toolbox or fast_lio")
         self.mapping_output_prefix = str(
             self.get_parameter("mapping_output_prefix").value
+        )
+        self.mapping_front_ip = str(
+            self.get_parameter("mapping_front_ip").value
+        )
+        self.mapping_rear_ip = str(
+            self.get_parameter("mapping_rear_ip").value
+        )
+        self.mapping_lidar_interface = str(
+            self.get_parameter("mapping_lidar_interface").value
+        )
+        self.manage_mapping_network = bool(
+            self.get_parameter("manage_mapping_network").value
+        )
+        self.mapping_network_added = False
+        self.publish_mapping_placeholder_pose = bool(
+            self.get_parameter("publish_mapping_placeholder_pose").value
         )
         self.manage_joy = bool(self.get_parameter("manage_joy").value)
         self.configured_joy_device = str(
@@ -139,12 +178,21 @@ class OperatorManager(Node):
         self.zero_sent = True
         self.xbox_armed = False
         self.xbox_status = {}
+        self.authority_id = f"operator_manager:{uuid.uuid4().hex}"
+        self.authority_lease = float(
+            self.get_parameter("authority_lease_seconds").value
+        )
+        if not 0.1 <= self.authority_lease <= 2.0:
+            raise ValueError("authority_lease_seconds must be within [0.1, 2.0]")
 
         state_qos = QoSProfile(depth=1)
         state_qos.reliability = ReliabilityPolicy.RELIABLE
         state_qos.durability = DurabilityPolicy.TRANSIENT_LOCAL
         self.cmd_publisher = self.create_publisher(
-            Twist, str(self.get_parameter("output_cmd_topic").value), 10
+            TwistStamped, str(self.get_parameter("output_cmd_topic").value), 10
+        )
+        self.authority_publisher = self.create_publisher(
+            String, str(self.get_parameter("authority_topic").value), 10
         )
         self.status_publisher = self.create_publisher(
             String, "/antbot/operator_ui_status", state_qos
@@ -167,6 +215,12 @@ class OperatorManager(Node):
         self.xbox_status_subscription = self.create_subscription(
             String, "/antbot_xbox/status", self.handle_xbox_status, state_qos
         )
+        self.mapping_output_subscription = self.create_subscription(
+            String,
+            "/antbot/mapping/output_prefix",
+            self.handle_mapping_output_prefix,
+            10,
+        )
         self.teleop_service = self.create_service(
             SetBool, "/antbot/teleop/use_xbox", self.set_teleop_mode
         )
@@ -176,9 +230,17 @@ class OperatorManager(Node):
         self.save_mapping_service = self.create_service(
             Trigger, "/antbot/mapping/save", self.save_mapping
         )
+        self.placeholder_tf_broadcaster = TransformBroadcaster(self)
         self.command_timer = self.create_timer(0.05, self.command_watchdog)
+        self.placeholder_tf_timer = self.create_timer(
+            0.1, self.publish_mapping_placeholder_tf
+        )
         self.status_timer = self.create_timer(0.5, self.publish_status)
         self.joy_timer = self.create_timer(1.0, self.update_gamepad)
+        self.authority_timer = self.create_timer(
+            self.authority_lease / 3.0, self.publish_authority
+        )
+        self.publish_authority()
         self.publish_zero()
         self.update_gamepad()
         self.publish_status()
@@ -188,7 +250,7 @@ class OperatorManager(Node):
         if source != self.teleop_mode:
             return
         command = limited_twist(message, self.max_linear_speed)
-        self.cmd_publisher.publish(command)
+        self.cmd_publisher.publish(self.authorized_command(command))
         self.last_command_vx = float(command.linear.x)
         self.last_command_vy = float(command.linear.y)
         self.last_command_wz = float(command.angular.z)
@@ -209,12 +271,60 @@ class OperatorManager(Node):
             self.xbox_armed = bool(status.get("armed", False))
             self.publish_status()
 
+    def handle_mapping_output_prefix(self, message: String) -> None:
+        """Accept an RViz-selected output path only while mapping is stopped."""
+        if self.mapping_is_running():
+            self.get_logger().warning(
+                "Ignoring mapping output change while mapping is running"
+            )
+            return
+        value = message.data.strip()
+        if not value:
+            self.get_logger().warning("Ignoring empty mapping output path")
+            return
+        candidate = Path(value).expanduser()
+        if candidate.suffix.lower() in (".pcd", ".yaml", ".yml", ".pgm"):
+            candidate = candidate.with_suffix("")
+        try:
+            candidate = candidate.resolve(strict=False)
+        except OSError as error:
+            self.get_logger().warning(f"Invalid mapping output path: {error}")
+            return
+        self.mapping_output_prefix = str(candidate)
+        self.get_logger().info(
+            f"Mapping output path changed to {self.mapping_output_prefix}"
+        )
+        self.publish_status()
+
     def publish_zero(self) -> None:
-        self.cmd_publisher.publish(Twist())
+        self.cmd_publisher.publish(self.authorized_command(Twist()))
         self.last_command_vx = 0.0
         self.last_command_vy = 0.0
         self.last_command_wz = 0.0
         self.zero_sent = True
+
+    def authorized_command(self, command: Twist) -> TwistStamped:
+        message = TwistStamped()
+        message.header.stamp = self.get_clock().now().to_msg()
+        message.header.frame_id = self.authority_id
+        message.twist = command
+        return message
+
+    def publish_authority(self) -> None:
+        message = String()
+        message.data = json.dumps({
+            "owner": self.authority_id,
+            "lease_seconds": self.authority_lease,
+        })
+        self.authority_publisher.publish(message)
+
+    def release_authority(self) -> None:
+        message = String()
+        message.data = json.dumps({
+            "owner": self.authority_id,
+            "release": True,
+        })
+        self.authority_publisher.publish(message)
 
     def command_watchdog(self) -> None:
         if (
@@ -222,6 +332,20 @@ class OperatorManager(Node):
             and time.monotonic() - self.last_command_time > self.command_timeout
         ):
             self.publish_zero()
+
+    def publish_mapping_placeholder_tf(self) -> None:
+        """Keep RViz usable before LIO starts, without overlapping live LIO TF."""
+        if (
+            not self.publish_mapping_placeholder_pose
+            or self.mapping_is_running()
+        ):
+            return
+        transform = TransformStamped()
+        transform.header.stamp = self.get_clock().now().to_msg()
+        transform.header.frame_id = "odom"
+        transform.child_frame_id = "base_link"
+        transform.transform.rotation.w = 1.0
+        self.placeholder_tf_broadcaster.sendTransform(transform)
 
     def stop_gamepad(self) -> None:
         process = self.joy_process
@@ -292,22 +416,118 @@ class OperatorManager(Node):
             and self.mapping_process.poll() is None
         )
 
+    def prepare_mapping_network(self) -> tuple[bool, str]:
+        """Temporarily append the Livox subnet without editing NM profiles."""
+        if self.mapping_backend != "fast_lio" or not self.manage_mapping_network:
+            return True, ""
+        try:
+            address_data = json.loads(subprocess.check_output(
+                ["ip", "-j", "addr", "show", "dev", self.mapping_lidar_interface],
+                text=True,
+            ))
+            addresses = {
+                item["local"] for link in address_data
+                for item in link.get("addr_info", [])
+                if item.get("family") == "inet"
+            }
+            default_routes = json.loads(subprocess.check_output(
+                ["ip", "-j", "route", "show", "default"], text=True
+            ))
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as error:
+            return False, f"网络状态读取失败：{error}"
+        if any(route.get("dev") == self.mapping_lidar_interface for route in default_routes):
+            return False, "拒绝切换：雷达网卡当前承载默认路由"
+        if "10.42.0.1" not in addresses:
+            return False, (
+                f"拒绝切换：{self.mapping_lidar_interface} 原地址 "
+                "10.42.0.1 不存在"
+            )
+        if "192.168.1.50" in addresses:
+            return True, ""
+        result = subprocess.run(
+            [
+                "nmcli", "device", "modify", self.mapping_lidar_interface,
+                "ipv4.method", "manual",
+                "ipv4.addresses", "10.42.0.1/24,192.168.1.50/24",
+                "ipv4.never-default", "yes",
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            return False, f"雷达临时地址添加失败：{result.stderr.strip()}"
+        self.mapping_network_added = True
+        for _unused in range(30):
+            try:
+                current = subprocess.check_output(
+                    [
+                        "ip", "-4", "-o", "addr", "show", "dev",
+                        self.mapping_lidar_interface,
+                    ],
+                    text=True,
+                )
+            except (OSError, subprocess.CalledProcessError):
+                current = ""
+            if (
+                "10.42.0.1/24" in current
+                and "192.168.1.50/24" in current
+            ):
+                return True, ""
+            time.sleep(0.1)
+        self.restore_mapping_network()
+        return False, "雷达临时地址未在 3 秒内生效"
+
+    def restore_mapping_network(self) -> None:
+        """Remove only the temporary address added by this manager."""
+        if not self.mapping_network_added:
+            return
+        result = subprocess.run(
+            [
+                "nmcli", "device", "reapply", self.mapping_lidar_interface,
+            ],
+            capture_output=True, text=True, check=False,
+        )
+        if result.returncode != 0:
+            self.mapping_error = (
+                "雷达测试地址恢复失败，请检查 eno1：" + result.stderr.strip()
+            )
+            self.get_logger().error(self.mapping_error)
+            return
+        self.mapping_network_added = False
+
     def start_mapping(self):
         if self.mapping_is_running():
             return True, "建图已经在运行"
-        scan_publishers = self.count_publishers(self.scan_topic)
-        if scan_publishers == 0:
+        if (
+            self.mapping_backend == "slam_toolbox"
+            and self.count_publishers(self.scan_topic) == 0
+        ):
             return False, f"无法开始：{self.scan_topic} 没有发布者"
+        network_ok, network_message = self.prepare_mapping_network()
+        if not network_ok:
+            return False, network_message
         prefix = Path(self.mapping_output_prefix).expanduser()
         prefix.parent.mkdir(parents=True, exist_ok=True)
         log_path = prefix.parent / "mapping.log"
         self.mapping_log_handle = log_path.open("a", encoding="utf-8")
-        command = [
-            "ros2", "launch", "antbot_real_bringup",
-            "embedded_mapping.launch.py",
-            f"scan_topic:={self.scan_topic}",
-            f"map_topic:={self.mapping_topic}",
-        ]
+        if self.mapping_backend == "fast_lio":
+            command = [
+                "ros2", "launch", "antbot_mapping",
+                "antbot_mapping.launch.py",
+                f"front_ip:={self.mapping_front_ip}",
+                f"rear_ip:={self.mapping_rear_ip}",
+                f"lidar_interface:={self.mapping_lidar_interface}",
+                f"map_file_path:={prefix}.pcd",
+                "pcd_save_en:=true",
+                "start_robot_description:=false",
+                "use_rviz:=false",
+            ]
+        else:
+            command = [
+                "ros2", "launch", "antbot_real_bringup",
+                "embedded_mapping.launch.py",
+                f"scan_topic:={self.scan_topic}",
+                f"map_topic:={self.mapping_topic}",
+            ]
         try:
             self.mapping_process = subprocess.Popen(
                 command,
@@ -321,9 +541,14 @@ class OperatorManager(Node):
             self.mapping_log_handle = None
             self.mapping_process = None
             self.mapping_error = str(error)
+            self.restore_mapping_network()
             return False, f"建图进程启动失败：{error}"
         self.mapping_error = ""
-        return True, f"建图已启动；输出目录：{prefix.parent}"
+        backend_name = (
+            "MID360 FAST-LIO" if self.mapping_backend == "fast_lio"
+            else "SLAM Toolbox"
+        )
+        return True, f"{backend_name} 已启动；输出目录：{prefix.parent}"
 
     def stop_mapping(self) -> None:
         process = self.mapping_process
@@ -340,6 +565,7 @@ class OperatorManager(Node):
         if self.mapping_log_handle is not None:
             self.mapping_log_handle.close()
             self.mapping_log_handle = None
+        self.restore_mapping_network()
 
     def set_mapping_enabled(self, request, response):
         if request.data:
@@ -347,7 +573,11 @@ class OperatorManager(Node):
         else:
             self.stop_mapping()
             response.success = True
-            response.message = "建图已停止；已生成的地图不会自动覆盖正式地图"
+            response.message = (
+                "FAST-LIO 已停止；当前 PCD 仅为工作副本，不会覆盖正式导航地图"
+                if self.mapping_backend == "fast_lio"
+                else "建图已停止；已生成的地图不会自动覆盖正式地图"
+            )
         self.publish_status()
         return response
 
@@ -358,13 +588,19 @@ class OperatorManager(Node):
             return response
         prefix = Path(self.mapping_output_prefix).expanduser()
         prefix.parent.mkdir(parents=True, exist_ok=True)
-        command = [
-            "ros2", "run", "nav2_map_server", "map_saver_cli",
-            "-t", self.mapping_topic, "-f", str(prefix),
-            "--ros-args", "-p", "use_sim_time:=false",
-            "-p", "save_map_timeout:=10.0",
-            "-p", "map_subscribe_transient_local:=true",
-        ]
+        if self.mapping_backend == "fast_lio":
+            command = [
+                "ros2", "service", "call", "/map_save",
+                "std_srvs/srv/Trigger", "{}",
+            ]
+        else:
+            command = [
+                "ros2", "run", "nav2_map_server", "map_saver_cli",
+                "-t", self.mapping_topic, "-f", str(prefix),
+                "--ros-args", "-p", "use_sim_time:=false",
+                "-p", "save_map_timeout:=10.0",
+                "-p", "map_subscribe_transient_local:=true",
+            ]
         try:
             result = subprocess.run(
                 command, capture_output=True, text=True, timeout=20.0,
@@ -374,11 +610,18 @@ class OperatorManager(Node):
             response.success = False
             response.message = f"地图保存失败：{error}"
             return response
-        response.success = result.returncode == 0
+        response.success = result.returncode == 0 and (
+            self.mapping_backend != "fast_lio"
+            or "success=True" in result.stdout.replace(" ", "")
+        )
+        saved_path = (
+            f"{prefix}.pcd" if self.mapping_backend == "fast_lio"
+            else f"{prefix}.yaml"
+        )
         response.message = (
-            f"地图已保存：{prefix}.yaml"
+            f"地图已保存：{saved_path}"
             if response.success
-            else f"地图保存失败，退出码 {result.returncode}"
+            else f"地图保存失败：{(result.stdout + result.stderr).strip()}"
         )
         return response
 
@@ -411,6 +654,11 @@ class OperatorManager(Node):
             ),
             "mapping_running": self.mapping_is_running(),
             "mapping_error": self.mapping_error,
+            "mapping_backend": self.mapping_backend,
+            "mapping_start_ready": (
+                self.mapping_backend == "fast_lio"
+                or self.count_publishers(self.scan_topic) > 0
+            ),
             "scan_topic": self.scan_topic,
             "scan_publishers": self.count_publishers(self.scan_topic),
             "mapping_topic": self.mapping_topic,
@@ -424,6 +672,7 @@ class OperatorManager(Node):
         # the final zero while the ROS context can still accept messages.
         if rclpy.ok(context=self.context):
             self.publish_zero()
+            self.release_authority()
         self.stop_gamepad()
         self.stop_mapping()
         return super().destroy_node()

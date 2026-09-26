@@ -1,0 +1,14 @@
+<library path="rebotarm_demo_rviz_plugin">
+  <class
+    name="rebotarm_demo_rviz/DemoPanel"
+    type="rebotarm_demo_rviz::DemoPanel"
+    base_class_type="rviz_common::Panel">
+    <description>Integrated MoveIt planning, robot safety, teaching and action controls for reBotArm.</description>
+  </class>
+  <class
+    name="rebotarm_demo_rviz/DualArmSelectorPanel"
+    type="rebotarm_demo_rviz::DualArmSelectorPanel"
+    base_class_type="rviz_common::Panel">
+    <description>Safe runtime Xbox ownership selector for concurrent reBotArm and Piper-H stacks.</description>
+  </class>
+</library>

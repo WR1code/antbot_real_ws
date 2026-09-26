@@ -1,0 +1,32 @@
+piper_tool_geometry:
+  ros__parameters:
+    parent_frame: piperh/pulse_tool_envelope
+    geometry_calibrated: false
+
+    # Caliper measurements: about 115.99 mm from the green J6 mounting face
+    # to the three front sensor tips; maximum front diameter about 32.53 mm.
+    # Tool-local +Z is the tool direction in the Piper-H description. The small
+    # Link6-origin-to-physical-flange offset is not yet measured, so these
+    # remain visualization values and are not published as TCP transforms.
+    support_length_m: 0.11599
+    support_width_m: 0.03253
+    support_depth_m: 0.03253
+    approx_support_center_xyz: [0.0, 0.0, 0.057995]
+    approx_support_rpy: [0.0, 0.0, 0.0]
+    # All three sensing tips share the front plane. The 10 mm spacing and
+    # S1/S2/S3 direction are still approximate until measured with calipers.
+    approx_sensor_offsets_m: [
+      -0.010, 0.0, 0.11599,
+       0.000, 0.0, 0.11599,
+       0.010, 0.0, 0.11599
+    ]
+
+    # Fill from CAD or direct pulse_tool_envelope-frame measurements, then set
+    # geometry_calibrated=true. Local sensor +Z will point along this normal;
+    # the expected direction for this axial fixture is tool-local +Z.
+    calibrated_sensor_offsets_m: [
+      0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0,
+      0.0, 0.0, 0.0
+    ]
+    contact_normal_xyz: [0.0, 0.0, 0.0]

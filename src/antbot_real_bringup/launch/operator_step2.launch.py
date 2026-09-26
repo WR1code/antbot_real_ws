@@ -47,6 +47,18 @@ def generate_launch_description():
             "mapping_output_prefix": LaunchConfiguration(
                 "mapping_output_prefix"
             ),
+            "mapping_backend": LaunchConfiguration("mapping_backend"),
+            "mapping_front_ip": LaunchConfiguration("mapping_front_ip"),
+            "mapping_rear_ip": LaunchConfiguration("mapping_rear_ip"),
+            "mapping_lidar_interface": LaunchConfiguration(
+                "mapping_lidar_interface"
+            ),
+            "manage_mapping_network": LaunchConfiguration(
+                "manage_mapping_network"
+            ),
+            "publish_mapping_placeholder_pose": LaunchConfiguration(
+                "publish_mapping_placeholder_pose"
+            ),
         }.items(),
     )
 
@@ -128,6 +140,7 @@ def generate_launch_description():
         executable="static_transform_publisher",
         name="operator_map_to_base_placeholder",
         output="screen",
+        condition=IfCondition(LaunchConfiguration("publish_placeholder_pose")),
         arguments=[
             "--x", "0", "--y", "0", "--z", "0",
             "--roll", "0", "--pitch", "0", "--yaw", "0",
@@ -180,7 +193,21 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             "mapping_output_prefix",
-            default_value="/tmp/antbot_mapping/map",
+            default_value=os.path.join(
+                os.environ.get("ANTBOT_REAL_WS", "/tmp/antbot_real_ws"),
+                "artifacts", "maps", "mapping_runs", "current", "map",
+            ),
+        ),
+        DeclareLaunchArgument(
+            "mapping_backend", default_value="slam_toolbox",
+            choices=["slam_toolbox", "fast_lio"],
+        ),
+        DeclareLaunchArgument("mapping_front_ip", default_value="192.168.1.116"),
+        DeclareLaunchArgument("mapping_rear_ip", default_value="192.168.1.139"),
+        DeclareLaunchArgument("mapping_lidar_interface", default_value="eno1"),
+        DeclareLaunchArgument("manage_mapping_network", default_value="false"),
+        DeclareLaunchArgument(
+            "publish_mapping_placeholder_pose", default_value="false"
         ),
         DeclareLaunchArgument("map"),
         DeclareLaunchArgument("waypoints_file"),
@@ -192,6 +219,7 @@ def generate_launch_description():
         DeclareLaunchArgument("rgbd_preview_path", default_value=""),
         DeclareLaunchArgument("show_3d_cloud", default_value="false"),
         DeclareLaunchArgument("show_rgbd_cloud", default_value="false"),
+        DeclareLaunchArgument("publish_placeholder_pose", default_value="true"),
         DeclareLaunchArgument(
             "rviz_config",
             default_value=os.path.join(
@@ -199,6 +227,11 @@ def generate_launch_description():
             ),
         ),
         DeclareLaunchArgument("use_operator_rviz", default_value="true"),
+        DeclareLaunchArgument("start_pulse", default_value=os.environ.get("ANTBOT_START_PULSE", "true")),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(os.path.join(real_dir, "launch", "pulse_services.launch.py")),
+            condition=IfCondition(LaunchConfiguration("start_pulse")),
+        ),
         real_base,
         map_server,
         map_lifecycle,

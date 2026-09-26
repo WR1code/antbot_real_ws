@@ -1,0 +1,8 @@
+string name
+# 0 uses the configured default; otherwise 0.1x to 2.0x.
+float64 speed_scale
+# Optional current editor selection. Empty executes the complete saved sequence named above.
+string[] action_names
+---
+bool success
+string message

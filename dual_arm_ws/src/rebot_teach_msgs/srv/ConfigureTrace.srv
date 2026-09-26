@@ -1,0 +1,6 @@
+bool set_line_width
+float64 line_width_m
+---
+bool success
+string message
+float64 line_width_m

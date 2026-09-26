@@ -70,8 +70,18 @@ ros2 launch antbot_description description.launch.py use_rviz:=true use_joint_st
 
 | File | Description |
 |------|-------------|
-| `meshes/gk4xc_001_003_full.stl` | Decimated binary mesh generated from the supplied STEP assembly |
+| `meshes/gk4xc_001_003_full.stl` | Original decimated mesh of the complete STEP assembly |
+| `meshes/gk4xc_001_003_without_piperh.stl` | Runtime chassis mesh with the fixed CAD Piper-H removed |
 | `cad/GK4XC-001-003 4轮转向小车总装.STEP` | Original SolidWorks assembly, stored with Git LFS |
+
+Regenerate the runtime mesh after replacing the source STL with the same CAD
+revision:
+
+```bash
+python3 scripts/remove_fixed_piperh.py \
+  meshes/gk4xc_001_003_full.stl \
+  meshes/gk4xc_001_003_without_piperh.stl
+```
 
 ## Dependencies
 

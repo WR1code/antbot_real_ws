@@ -1,0 +1,1 @@
+stamp_ns,stage,front_crop_ms,rear_crop_ms,front_tf_ms,rear_tf_ms,merge_ms,total_ms,front_input_points,rear_input_points,front_kept_points,rear_kept_points,sync_success,sync_miss,dropped_clouds

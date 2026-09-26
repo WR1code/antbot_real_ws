@@ -36,6 +36,9 @@ usage()
   ANTBOT_TELEOP_MODE         默认控制方式：xbox 或 keyboard
   ANTBOT_MAPPING_OUTPUT_PREFIX  RViz 建图页面保存前缀
   ANTBOT_RVIZ_CONFIG         完整 Step2 RViz 配置文件
+  ANTBOT_START_PULSE         同时启动把脉网页与压力采集，默认 true；false 可关闭
+  ANTBOT_PULSE_PORT          压力传感器的 /dev/serial/by-id/... 路径
+  ANTBOT_PULSE_WEB_PORT      把脉网页端口，默认 8765
 EOF
 }
 
@@ -82,6 +85,13 @@ require_file "Step2 RViz 配置" "$rviz_config"
 
 # shellcheck disable=SC1091
 source "${script_dir}/setup_env.sh"
+
+if [[ "${ANTBOT_START_PULSE:-true}" != false ]]; then
+  require_file "把脉网页启动脚本" "${real_workspace}/scripts/start_pulse_web.sh"
+  require_file "压力采集启动脚本" "${real_workspace}/scripts/start_pulse_pressure.sh"
+  PYTHONPATH="${real_workspace}/src/rebotarm_pulse${PYTHONPATH:+:${PYTHONPATH}}" \
+    python3 -c 'import rebotarm_pulse.pressure_serial_bridge; import rebotarm_pulse.pulse_web_gateway'
+fi
 
 require_prefix()
 {
@@ -158,6 +168,9 @@ echo "“建图与遥控”页可选 Xbox/键盘并启停建图；建图需要 /
 echo "地图保存前缀：${mapping_output_prefix}"
 echo "自动导航保持关闭（当前底层没有 /odom；Xbox LT/RT 原地旋转可用）。"
 echo "关闭 RViz 或按 Ctrl+C 会同时停止整个真机控制流程。"
+if [[ "${ANTBOT_START_PULSE:-true}" != false ]]; then
+  echo "同时启动把脉网页与压力采集：http://127.0.0.1:${ANTBOT_PULSE_WEB_PORT:-8765}/#report"
+fi
 
 exec ros2 launch antbot_real_bringup operator_step2.launch.py \
   port:="$uart_port" \

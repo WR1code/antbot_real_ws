@@ -1,0 +1,75 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: base_link
+    Frame Rate: 30
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front Raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/front_left/points_raw_native
+      Size (Pixels): 2
+      Color Transformer: Intensity
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front Filtered
+      Enabled: true
+      Topic:
+        Value: /mid360/front/filtered
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 0; 255; 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Front Rejected
+      Enabled: true
+      Topic:
+        Value: /mid360/front/rejected
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Color: 255; 0; 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear Raw
+      Enabled: true
+      Topic:
+        Value: /antbot/lidar/rear_right/points_raw_native
+      Size (Pixels): 2
+      Color Transformer: Intensity
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear Filtered
+      Enabled: true
+      Topic:
+        Value: /mid360/rear/filtered
+      Size (Pixels): 2
+      Color Transformer: FlatColor
+      Color: 0; 160; 255
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Rear Rejected
+      Enabled: true
+      Topic:
+        Value: /mid360/rear/rejected
+      Size (Pixels): 3
+      Color Transformer: FlatColor
+      Color: 255; 128; 0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: Merged
+      Enabled: true
+      Topic:
+        Value: /mid360/merged
+      Size (Pixels): 2
+      Color Transformer: AxisColor
+      Axis: Z
+    - Class: rviz_default_plugins/TF
+      Name: TF
+      Enabled: true
+  Enabled: true
+  Name: root
+Window Geometry:
+  Width: 1400
+  Height: 900

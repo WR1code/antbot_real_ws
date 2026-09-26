@@ -1,0 +1,20 @@
+controller_manager:
+  ros__parameters:
+    update_rate: 100
+    arm_controller:
+      type: joint_trajectory_controller/JointTrajectoryController
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+
+arm_controller:
+  ros__parameters:
+    joints: [joint1, joint2, joint3, joint4, joint5, joint6]
+    command_interfaces: [position]
+    state_interfaces: [position, velocity]
+    # MoveIt Servo publishes a continuous stream of short trajectories whose
+    # final sample intentionally carries velocity into the next sample.
+    allow_nonzero_velocity_at_trajectory_end: true
+
+joint_state_broadcaster:
+  ros__parameters:
+    publish_topic: /joint_states

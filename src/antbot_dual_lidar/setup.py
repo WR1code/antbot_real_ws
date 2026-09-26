@@ -31,6 +31,7 @@ setup(
         "console_scripts": [
             "cloud_preprocessor = antbot_dual_lidar.cloud_preprocessor:main",
             "livox_frame_relay = antbot_dual_lidar.livox_frame_relay:main",
+            "livox_imu_relay = antbot_dual_lidar.livox_imu_relay:main",
             "dual_lidar_diagnostics = antbot_dual_lidar.diagnostics:main",
             "dual_cloud_synchronizer = antbot_dual_lidar.synchronizer:main",
             "performance_probe = antbot_dual_lidar.performance_probe:main",

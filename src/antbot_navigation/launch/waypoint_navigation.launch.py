@@ -59,6 +59,10 @@ def generate_launch_description():
         executable='wp_navi_server',
         name='wp_navi_server',
         output='screen',
+        # An outstanding Nav2 action can keep this legacy synchronous node
+        # alive during shutdown. Bound how long it can delay the workbench.
+        sigterm_timeout='2.0',
+        sigkill_timeout='2.0',
         parameters=[{
             'use_sim_time': PythonExpression(["'", mode, "' == 'sim'"]),
             'save_file': LaunchConfiguration('waypoints_file'),

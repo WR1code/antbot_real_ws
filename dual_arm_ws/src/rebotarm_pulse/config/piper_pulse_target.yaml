@@ -1,0 +1,19 @@
+piper_pulse_target:
+  ros__parameters:
+    target_topic: /meridian_hand_vision/pulse_point
+    source_status_topic: /meridian_hand_vision/pulse_status
+    arm_direction_topic: /meridian_hand_vision/arm_direction
+    planning_frame: piperh_planning_world
+    calibration_name: piperh_camera_eye_in_hand
+    calibration_bridge_frame: piperh/Link5
+    tf_timeout_sec: 0.1
+
+    # Old camera observations are rejected using their original acquisition
+    # stamp. Never increase this to cover multi-second target droughts.
+    input_hard_age_sec: 1.5
+    heartbeat_hz: 2.0
+    statistics_period_sec: 5.0
+    gap_warning_sec: [0.5, 1.0, 2.0]
+    target_range_min_m: [-2.0, -2.0, 0.0]
+    target_range_max_m: [2.0, 2.0, 3.0]
+    diagnostic_log_directory: logs/pulse_precontact
