@@ -78,6 +78,12 @@ cd /home/w/project/rebotarm/real_robot_ws
 - `--target-hard-timeout-sec 2.0`：超过 2 秒没有有效目标才清空跟踪历史；
 - `--target-hard-jump-m 0.015`：P95、鲁棒中心或当前真实点变化超过 15 mm 时立即按新目标跟踪；
 - `--arm-direction-stable-frames 12`：仅用于独立的前臂方向滤波，不决定腕点目标是否稳定。
+- `--max-rgb-depth-time-diff-ms 30`：RGB 与对齐深度的采集时间差硬门限。时间戳缺失或
+  差值超过 30 ms 时整帧拒绝，不进入手部检测、表面拟合或目标发布。
+- `--surface-normal-source local_skin`：手部 approach 法向固定来自目标像素附近的局部
+  深度 ROI。节点先按手臂掩膜和深度带去背景，再以 RANSAC 拟合平面，并用内点数、
+  平面残差、置信度和有效深度比例进行质量门控。拟合失败时不发布运动目标，下一帧重新采样。
+  ChArUco/AprilTag 板法向只发布到独立的标定板话题，不参与手部目标或 Link6 standoff。
 
 ## 把脉区域输出
 
@@ -95,6 +101,8 @@ cd /home/w/project/rebotarm/real_robot_ws
   `stable_reset_count`、`last_stable_reset_reason`）；
 - `/meridian_hand_vision/arm_direction`（`geometry_msgs/Vector3Stamped`，相机光学
   坐标系中的近似前臂无向轴，使用图像时间戳）。
+- `/meridian_hand_vision/surface_normal`（`geometry_msgs/Vector3Stamped`，默认取背景
+  标定板平面的法向，并统一定向为从相机指向标定板；圆圈中心仍由手部 RGB-D 定位）。
 
 深度必须与彩色图注册，且必须有 `/camera/color/camera_info`。`pulse_point` 只负责观测，
 不会驱动机械臂；综合 RViz 面板的“识别把脉区并前往预接触位”会在手眼 TF、MoveIt 碰撞

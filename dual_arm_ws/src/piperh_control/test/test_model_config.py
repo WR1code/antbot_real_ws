@@ -1,4 +1,5 @@
 from pathlib import Path
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -86,3 +87,44 @@ def test_selected_arm_interlock_is_applied_to_adapter() -> None:
     source = launch_path.read_text(encoding="utf-8")
     adapter_start = source.index('package="piperh_control"')
     assert '"gravity_require_selected_robot": LaunchConfiguration(' in source[adapter_start:]
+
+
+def test_official_piper_h_kinematics_and_physical_limits_are_installed() -> None:
+    path = (
+        Path(__file__).parents[2]
+        / "piper_h_description"
+        / "urdf"
+        / "piper_h_description.urdf"
+    )
+    robot = ET.parse(path).getroot()
+    expected = {
+        "joint2": ("0 0 0", "1.5707963 -0.1357866 -3.1415926", "0", "3.1415926"),
+        "joint3": ("0.28503 0 0", "0 0 -1.7938494", "-2.9670597", "0"),
+        "joint4": ("-0.02198 -0.25575 0", "1.5707963 0 0", "-2.3561944", "2.3561944"),
+        "joint5": ("0 0 0", "-1.5707963 0 0", "-1.5620696", "1.5620696"),
+        "joint6": ("0 -0.0963 0", "1.5707963 0 0", "-2.0943951", "2.0943951"),
+    }
+    for name, (xyz, rpy, lower, upper) in expected.items():
+        joint = robot.find(f"./joint[@name='{name}']")
+        assert joint is not None
+        assert joint.find("origin").attrib == {"xyz": xyz, "rpy": rpy}
+        assert joint.find("axis").attrib["xyz"] == "0 0 1"
+        assert joint.find("limit").attrib["lower"] == lower
+        assert joint.find("limit").attrib["upper"] == upper
+
+
+def test_moveit_tolerance_does_not_expand_hardware_limits() -> None:
+    path = (
+        Path(__file__).parents[2]
+        / "piperh_moveit_config"
+        / "config"
+        / "joint_limits.yaml"
+    )
+    limits = yaml.safe_load(path.read_text(encoding="utf-8"))["joint_limits"]
+    assert limits["joint2"]["min_position"] == -0.1
+    assert limits["joint3"]["max_position"] == 0.1
+
+    from piperh_control.hardware_adapter import LOWER, UPPER
+
+    assert LOWER[1] == 0.0
+    assert UPPER[2] == 0.0

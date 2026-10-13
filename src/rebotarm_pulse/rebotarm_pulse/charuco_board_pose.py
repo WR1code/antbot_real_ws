@@ -14,7 +14,11 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CameraInfo, Image
 from tf2_ros import TransformBroadcaster
 
-from .apriltag_board_pose import rotation_vector_to_quaternion
+from .apriltag_board_pose import (
+    rectified_camera_info,
+    rectified_image_metadata_error,
+    rotation_vector_to_quaternion,
+)
 
 
 CHARUCO_SQUARES_X = 5
@@ -194,6 +198,11 @@ class CharucoBoardPoseNode(Node):
         )
         self.dictionary = cv2.aruco.getPredefinedDictionary(CHARUCO_DICTIONARY_ID)
         self.camera_matrix: np.ndarray | None = None
+        self.camera_info_width: int | None = None
+        self.camera_info_height: int | None = None
+        self.camera_info_frame_id: str | None = None
+        self.camera_info_stamp = None
+        self.camera_model_logged = False
         self.broadcaster = TransformBroadcaster(self)
         self.create_subscription(
             CameraInfo, "camera_info", self._camera_info, qos_profile_sensor_data
@@ -210,18 +219,51 @@ class CharucoBoardPoseNode(Node):
         )
 
     def _camera_info(self, message: CameraInfo) -> None:
-        projection = np.asarray(message.p, dtype=np.float64).reshape((3, 4))
-        matrix = projection[:, :3]
-        if matrix[0, 0] <= 0.0 or matrix[1, 1] <= 0.0:
-            matrix = np.asarray(message.k, dtype=np.float64).reshape((3, 3))
-        if matrix[0, 0] > 0.0 and matrix[1, 1] > 0.0:
-            self.camera_matrix = matrix.copy()
+        validated = rectified_camera_info(message)
+        if validated is None:
+            self.camera_matrix = None
+            self.camera_info_width = None
+            self.camera_info_height = None
+            self.camera_info_frame_id = None
+            self.camera_info_stamp = None
+            self.camera_model_logged = False
+            self.get_logger().error(
+                "REJECTED: invalid CameraInfo.P; K fallback is disabled for rectified "
+                "hand-eye calibration.",
+                throttle_duration_sec=5.0,
+            )
+            return
+        matrix, width, height, frame_id = validated
+        self.camera_matrix = matrix
+        self.camera_info_width = width
+        self.camera_info_height = height
+        self.camera_info_frame_id = frame_id
+        self.camera_info_stamp = message.header.stamp
+        if not self.camera_model_logged:
+            self.get_logger().info(
+                "Hand-eye camera model: input model=rectified, image size=%dx%d, "
+                "fx=%.9g, fy=%.9g, cx=%.9g, cy=%.9g, "
+                "intrinsic source=CameraInfo.P, distortion=zero"
+                % (width, height, matrix[0, 0], matrix[1, 1], matrix[0, 2], matrix[1, 2])
+            )
+            self.camera_model_logged = True
 
     def _image(self, message: Image) -> None:
         if self.camera_matrix is None:
             self.get_logger().warning(
                 "waiting for a valid rectified CameraInfo", throttle_duration_sec=5.0
             )
+            return
+        metadata_error = rectified_image_metadata_error(
+            int(message.width),
+            int(message.height),
+            str(message.header.frame_id),
+            self.camera_info_width,
+            self.camera_info_height,
+            self.camera_info_frame_id,
+        )
+        if metadata_error is not None:
+            self.get_logger().error(metadata_error, throttle_duration_sec=5.0)
             return
         try:
             gray = image_to_gray(message)

@@ -6,11 +6,34 @@ from rebotarm_pulse.approach_geometry import (
     inside_workspace,
     piper_current_tip_gap,
     piper_precontact_link_pose,
+    point_to_segment_distance,
     precontact_tcp_pose,
+    quaternion_align_local_z,
     quaternion_align_x,
+    quaternion_roll_about_local_z,
     rotate_vector,
     translation_within_axis_limits,
 )
+
+
+def test_quaternion_align_local_blue_z_to_surface_normal():
+    orientation = quaternion_align_local_z((0.0, 0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    assert rotate_vector(orientation, (0.0, 0.0, 1.0)) == pytest.approx(
+        (1.0, 0.0, 0.0), abs=1e-7
+    )
+
+
+def test_local_z_roll_preserves_aligned_blue_axis():
+    orientation = quaternion_align_local_z(
+        (0.0, 0.0, 0.0, 1.0), (0.2, -0.7, 0.4)
+    )
+    expected_axis = rotate_vector(orientation, (0.0, 0.0, 1.0))
+    for angle in (30.0, -60.0, 180.0):
+        rolled = quaternion_roll_about_local_z(orientation, angle)
+        assert rotate_vector(rolled, (0.0, 0.0, 1.0)) == pytest.approx(
+            expected_axis, abs=1e-8
+        )
+        assert sum(value * value for value in rolled) == pytest.approx(1.0)
 
 
 def _rotate_x(quaternion):
@@ -57,6 +80,15 @@ def test_translation_limits_use_xy_radius_and_independent_absolute_z():
     assert not translation_within_axis_limits(
         (0.18, 0.24, -0.201), origin, 0.30, 0.20
     )
+
+
+def test_direct_hover_segment_clearance_uses_closed_segment_endpoint():
+    target = (0.3720770974, -0.1840434690, 0.8465612705)
+    current = (0.3221679432, -0.5298466044, 0.8834579969)
+    endpoint = (0.3665670487, -0.2838621034, 0.8489860553)
+    assert point_to_segment_distance(target, current, endpoint) == pytest.approx(0.1)
+    assert point_to_segment_distance((0.5, 0.0, 0.0), (0.0, 0.0, 0.0),
+                                     (1.0, 0.0, 0.0)) == pytest.approx(0.0)
 
 
 def test_piper_precontact_preserves_orientation_and_uses_local_positive_z():

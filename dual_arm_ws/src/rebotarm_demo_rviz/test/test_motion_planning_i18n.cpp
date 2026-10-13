@@ -201,12 +201,27 @@ int main(int argc, char ** argv)
   if (!hand_vision_large_button ||
     hand_vision_large_button->text() != QStringLiteral("独立大屏显示") ||
     !hand_vision_large_dialog || !hand_vision_large_dialog->isVisible() ||
+    !hand_vision_large_dialog->windowFlags().testFlag(Qt::WindowStaysOnTopHint) ||
+    !hand_vision_large_dialog->windowState().testFlag(Qt::WindowMaximized) ||
     !hand_vision_large_label)
   {
     std::cerr << "standalone hand-vision large view is unavailable\n";
     ok = false;
   }
-  if (hand_vision_large_dialog) {hand_vision_large_dialog->close();}
+  if (hand_vision_large_dialog) {
+    hand_vision_large_dialog->showMinimized();
+    application.processEvents();
+    hand_vision_large_button->click();
+    application.processEvents();
+    if (!hand_vision_large_dialog->isVisible() ||
+      hand_vision_large_dialog->windowState().testFlag(Qt::WindowMinimized) ||
+      !hand_vision_large_dialog->windowState().testFlag(Qt::WindowMaximized))
+    {
+      std::cerr << "standalone hand-vision large view does not recover from minimized state\n";
+      ok = false;
+    }
+    hand_vision_large_dialog->close();
+  }
 
   auto * shape_editor_scroll = panel.findChild<QScrollArea *>(
     QStringLiteral("teach_shape_editor_scroll"));
@@ -267,6 +282,12 @@ int main(int argc, char ** argv)
     QStringLiteral("handeye_robot_effector_edit"));
   auto * piper_pulse_approach = panel.findChild<QPushButton *>(
     QStringLiteral("pulse_approach_button"));
+  auto * piper_board_approach = panel.findChild<QPushButton *>(
+    QStringLiteral("board_corner_approach_button"));
+  auto * piper_standoff = panel.findChild<QDoubleSpinBox *>(
+    QStringLiteral("piper_standoff_spin"));
+  auto * saved_calibrations = panel.findChild<QComboBox *>(
+    QStringLiteral("hand_vision_calibration_combo"));
   const bool piper_eye_in_hand_saved = QFileInfo::exists(
     QDir::homePath() +
     QStringLiteral("/.ros2/easy_handeye2/calibrations/piperh_camera_eye_in_hand.calib"));
@@ -275,12 +296,32 @@ int main(int argc, char ** argv)
   if (!handeye_name || handeye_name->text() != expected_piper_calibration ||
     !handeye_base || handeye_base->text() != QStringLiteral("piperh/base_link") ||
     !handeye_effector || handeye_effector->text() != QStringLiteral("piperh/Link5") ||
+    !saved_calibrations ||
     !piper_pulse_approach || !piper_pulse_approach->isEnabled() ||
+    !piper_board_approach || piper_board_approach->isHidden() ||
+    !piper_standoff || piper_standoff->isHidden() ||
+    piper_standoff->minimum() != 20.0 || piper_standoff->maximum() != 400.0 ||
+    piper_standoff->singleStep() != 1.0 ||
+    piper_standoff->value() != 100.0 ||
     piper_pulse_approach->text() !=
-      QStringLiteral("假体测试：前往视觉目标（压力停止）"))
+      QStringLiteral("前往圆圈法向上方 100 mm 并对准蓝轴") ||
+    piper_board_approach->text() !=
+      QStringLiteral("标定验证：前往画面右下板角点法向上方 100 mm"))
   {
     std::cerr << "Piper-H shared vision/calibration pages are not safely configured\n";
     ok = false;
+  }
+  if (piper_standoff && piper_board_approach) {
+    piper_standoff->setValue(80.0);
+    application.processEvents();
+    if (piper_pulse_approach->text() !=
+      QStringLiteral("前往圆圈法向上方 80 mm 并对准蓝轴") ||
+      piper_board_approach->text() !=
+      QStringLiteral("标定验证：前往画面右下板角点法向上方 80 mm"))
+    {
+      std::cerr << "Piper-H standoff selection does not update the motion label\n";
+      ok = false;
+    }
   }
   panel.setActiveRobot(QStringLiteral("rebotarm"));
 

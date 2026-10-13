@@ -7,6 +7,7 @@ piper_pulse_align:
     ik_link: Link6
     target_topic: /piperh/pulse/target
     arm_direction_topic: /piperh/pulse/arm_direction
+    surface_normal_topic: /piperh/pulse/surface_normal
     # Device identity is used for read-only owner diagnostics; the planner never opens it.
     pressure_serial_device: /dev/serial/by-id/usb-1a86_USB_Single_Serial_5CF9120157-if00
 
@@ -23,10 +24,25 @@ piper_pulse_align:
     arm_direction_stable_min_samples: 3
     arm_direction_stable_deg: 3.0
     arm_direction_max_age_sec: 1.5
+    surface_normal_filter_window_sec: 0.8
+    surface_normal_stable_min_samples: 3
+    surface_normal_stable_deg: 5.0
+    surface_normal_max_age_sec: 1.5
+    # Once motion starts, keep the planned normal through brief RGB-D gaps.
+    # Cancel only for a prolonged dropout or a persistent reliable deviation.
+    surface_normal_execution_dropout_grace_sec: 1.5
+    surface_normal_execution_max_deviation_deg: 8.0
+    surface_normal_execution_hold_sec: 0.2
 
     # Measured green J6 mounting face to the common sensor-tip plane.
     tip_offset_m: 0.11599
     standoff_m: 0.060
+    # Explicit panel-only mode for a physically bare Link6 flange. It places
+    # the target standoff_m forward on Link6 local +Z and does not require pressure IO.
+    link6_hover_mode: false
+    # Temporary endpoint-test switch: after a Link6 hover trajectory is accepted,
+    # keep following its frozen goal if the eye-in-hand view loses target/normal.
+    link6_hover_continue_on_visual_dropout: true
     # Explicit opt-in for non-human dummy tests. Never plan past the visual target.
     dummy_contact_mode: false
     dummy_max_cartesian_speed_m_s: 0.005
@@ -39,6 +55,9 @@ piper_pulse_align:
     maximum_approach_deviation_deg: 6.0
     maximum_approach_tangent_shift_m: 0.008
     ik_timeout_sec: 2.0
+    # Link6 +Z determines the skin-normal alignment; roll about +Z is free.
+    # Search equivalent attitudes so wrist limits do not reject a valid hover.
+    link6_hover_roll_search_deg: [0.0, 30.0, -30.0, 60.0, -60.0, 90.0, -90.0, 180.0]
     target_filter_window_sec: 0.6
     # Deprecated compatibility value; stability has no duration/FPS gate.
     target_stable_duration_sec: 0.0

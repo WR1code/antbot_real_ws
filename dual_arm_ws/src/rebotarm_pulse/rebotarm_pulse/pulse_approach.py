@@ -190,12 +190,21 @@ class PulseApproach(MoveItDemoBase):
         target = self._latest_target
         if target is None:
             return None
+        stamp_ns = (
+            int(target.header.stamp.sec) * 1_000_000_000
+            + int(target.header.stamp.nanosec)
+        )
+        if stamp_ns <= 0:
+            self.node.get_logger().error(
+                "visual target has no acquisition timestamp; latest TF is forbidden"
+            )
+            return None
         base_frame = str(self._param("base_frame"))
         try:
             transform = self._tf_buffer.lookup_transform(
                 base_frame,
                 target.header.frame_id,
-                Time(),
+                Time.from_msg(target.header.stamp),
                 timeout=Duration(seconds=float(self._param("tf_timeout_sec"))),
             )
             transformed = do_transform_point(target, transform)

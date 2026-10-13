@@ -93,7 +93,9 @@ ros2 run rebotarm_pulse pulse_web_gateway
    定位腕部；在 RViz 检查 `/rebotarm/pulse/target`、`/rebotarm/pulse/precontact`
    与实物一致。现有节点只规划到默认离目标 60 mm 的预接触位，要求 Xbox `LOCKED`、
    新鲜关节反馈及 MoveIt 碰撞规划通过。双臂入口下的预接触按钮已将子进程接口映射到
-   `/rebotarm/...`。
+   `/rebotarm/...`。综合面板“手部视觉”页的“使用手眼标定”可选择当前正式标定或带
+   时间戳的 PASS 快照；切换会重新加载 Piper-H 目标变换、清除旧目标，并要求重新收到
+   新鲜视觉目标。自动标定以后每次通过独立 Test 后都会同时保存正式文件和 PASS 快照。
 4. **接触控制另行验收**：需有独立标定的接触力测量、柔顺机构或力控、硬件限位/急停，
    并通过台架与仿体测试确定最大力、最大位移、速度、传感器超时及失联退让策略。
    在这些数据和保护未确定前，不增加向人体下压的运动指令。
@@ -154,9 +156,9 @@ ros2 service call /piperh/pulse/calibrate_zero std_srvs/srv/Trigger '{}'
 现场三探头经 3D 打印支架固定到 Piper-H J6，卡尺测得绿色法兰安装面到三个前端探头
 约 115.99 mm，前端最大直径约 32.53 mm；三颗测压口位于同一个前端平面并随 J6 转动。
 这两个数值已用于保守碰撞外形和非接触预定位。官方模型和照片表明探头沿 `Link6 +Z`
-伸出。Piper-H 面板的“假体测试：前往视觉目标（压力停止）”仅用于**非人体假体**：
-保持当前 J6 姿态，终点最多到冻结的视觉目标，不规划越过目标。命令行默认仍为
-60 mm 非接触预定位，只有显式设置 `dummy_contact_mode:=true` 才启用假体模式。
+伸出。保留的命令行 `dummy_contact_mode:=true` 仅用于**非人体假体**：保持当前 J6 姿态，
+终点最多到冻结的视觉目标，不规划越过目标。命令行默认仍为 60 mm 非接触预定位。
+综合面板当前不进入该接触模式，而使用下述裸 Link6 可调距离悬停模式（默认 100 mm）。
 自动修正在 `piperh_planning_world` 中分别限制为 XY 水平半径 300 mm 和 Z 方向
 200 mm；假体模式的笛卡尔速度上限为 5 mm/s、执行超时 90 秒。启动前目标超过
 1.5 秒未更新时进入可恢复等待并保留冻结历史，但禁止生成新的下降规划；超过 2.0 秒则以
@@ -178,6 +180,21 @@ ros2 service call /piperh/pulse/calibrate_zero std_srvs/srv/Trigger '{}'
 取消请求也不保证瞬时停止。三个探头中心距及圆盘绕 J6
 的安装角仍需实测后才能用于逐传感器精确落点。
 接触人体仍需独立的力控标定和接触阶段保护。
+
+当探头和支架已拆除时，综合面板的 Piper-H 手部视觉按钮使用独立的
+`link6_hover_mode:=true`：控制点是机械臂自身的 `piperh/Link6` 原点，工具偏置强制为零；
+面板动作沿圆圈覆盖区域拟合出的局部皮肤平面外法向，将 Link6 放在目标上方所选距离；
+距离可在面板中选择 20–400 mm，默认 100 mm、步进 1 mm，
+姿态使 Link6 蓝色 +Z 轴沿相反方向垂直指向皮肤。
+目标和皮肤法向在发出轨迹前严格校验并锁存；由于相机随 Link6 运动后目标可能自然离开
+视野，执行期单纯的视觉断流不会取消已接受的非接触悬停轨迹，但新鲜观测到的
+目标硬跳变、法向持续偏移、Xbox 解锁、机械臂切换及执行超时仍会取消。
+视觉使用目标附近、手臂分割掩膜内的注册深度点拟合局部皮肤平面；Link6 姿态旋转到
+自身蓝色 `+Z` 轴沿稳定表面法向指向皮肤，原点位置为
+`识别点 - 皮肤内法向 × 所选距离`。法向缺失、过期或不稳定时禁止执行。它以
+不超过 5 mm/s 的笛卡尔速度执行经 IK、关节限位、MoveIt 碰撞和完整路径检查的
+非接触运动。该模式不依赖已拆除工具的压力串口，但仍要求新鲜视觉目标、前臂方向、关节反馈、
+当前选择 Piper-H 且 Xbox 为 `LOCKED`。不要在压力工具仍安装时使用这一裸法兰模式。
 
 若 Piper-H 手眼标定已经保存并在 TF 中生效，可启动只观测不运动的目标节点：
 
@@ -208,9 +225,11 @@ ros2 run rebotarm_pulse piper_pulse_align --ros-args \
 ```
 
 参数文件默认 `execute_motion: true`、`dummy_contact_mode: false`，命令行默认仍只到
-60 mm 预接触位。综合面板为 Piper-H 显式传入 `dummy_contact_mode:=true`：经确认后，
-执行至视觉目标或因压力/失联/超时等条件取消，不会主动越过视觉目标。两种模式都没有
-FORCE_CONTROL。命令行临时传入 `-p execute_motion:=false` 可只做规划验证。
+60 mm 预接触位。综合面板为已拆除工具的 Piper-H 显式传入
+`link6_hover_mode:=true`、`tip_offset_m:=0`，并将面板选择的 20–400 mm 距离换算为
+`standoff_m`；Link6 只到圆圈所在局部皮肤平面的法向上方所选距离，蓝色 +Z 轴垂直指向皮肤。
+需要非人体假体接触测试时仍可在命令行显式传入 `dummy_contact_mode:=true`；
+两种模式都没有 FORCE_CONTROL。临时传入 `-p execute_motion:=false` 可只做规划验证。
 
 ### Piper-H 两阶段预接触规划
 
@@ -264,11 +283,18 @@ p_precontact = p_target - standoff * a
 `target_drop`、`tf_failure`、`publish_gap` 和 `exception`。节点永不拿旧目标更新时间戳后
 伪装成新观测；诊断中的 `last_valid_target_age_ms` 始终来自原始相机 acquisition stamp。
 
+`/handeye_target/timing_debug` 逐目标发布 JSON，包含 RGB、Depth、CameraInfo、TF 查询、
+TF 返回值和最近 joint state 的时间戳，以及 `delta_rgb_depth_ms`、`delta_rgb_tf_ms`、
+`delta_rgb_joint_ms`。最近 300 个目标分别统计 mean/P95/max，并按默认 0.1 m/s 估算
+时间偏差对应的运动误差；原始记录也以 `timing_debug` 事件写入同一 target pipeline JSONL。
+移动目标的 TF 只按 RGB acquisition stamp 查询；该时刻 TF 不存在时直接拒绝目标，禁止
+退回 `Time()` latest transform。
+
 发布路径及每帧拒绝条件：
 
 | 阶段 | 不发布源/规划目标的条件及 reason |
 | --- | --- |
-| 相机 RX | 彩色/深度帧缺失、配对时间差超过 `sync-ms`（较旧帧丢弃）：`NO_CAMERA_FRAME` / `NO_SYNCED_PAIR`；0.5 s 源心跳含原始彩色/深度接收年龄，非伪造目标 |
+| 相机 RX | 彩色/深度帧缺失、时间戳为零或配对时间差超过 `max-rgb-depth-time-diff-ms=30`（较旧帧丢弃）：`NO_CAMERA_FRAME` / `NO_SYNCED_PAIR`；0.5 s 源心跳含原始彩色/深度接收年龄，非伪造目标 |
 | 检测 | 相机内参缺失或无效 `INVALID_CAMERA_INFO`；MediaPipe 未返回手（包括其内置 detection/presence/tracking 0.5 置信度门限未满足）`NO_DETECTION`；非恰好一只手 `MULTIPLE_DETECTIONS` |
 | 深度/3D | 腕点几何无效 `INVALID_3D_POINT`；局部深度不足 5 个有效值、超 0.10–2.0 m 或 25 mm 一致性失败 `INVALID_DEPTH`；投影不有限 `INVALID_3D_POINT` |
 | 稳定滤波 | 0.6 s 窗口内不足 3 个真实有效 3D 点或空间距离 P95 超过 5 mm：`FILTER_STABILIZING`；锁定后 8 mm/200 ms 滞回，超过 15 mm 立即按目标改变处理；无固定 FPS/持续时间门槛，短时漏帧不清历史 |
@@ -285,6 +311,7 @@ p_precontact = p_target - standoff * a
 
 ```bash
 ros2 topic echo /piperh/pulse/target_diagnostics
+ros2 topic echo /handeye_target/timing_debug
 find logs/pulse_precontact -name 'target_pipeline_*.jsonl' -printf '%T@ %p\n' | sort -nr | head -1
 ```
 
@@ -337,8 +364,9 @@ piperh_planning_world
        -> pulse_tip_center
 ```
 
-工程没有单独命名的 flange frame；`Link6` 就是 J6 后的安装参考 frame。`joint6` 的
-URDF 转轴为 `[-0.087161, 0, 0.99619]`，限位为 `[-3.14, 3.14] rad`。真机
+工程没有单独命名的 flange frame；`Link6` 就是 J6 后的安装参考 frame。官方
+Piper-H URDF 中 `joint6` 的转轴为 `[0, 0, 1]`，限位为
+`[-2.0943951, 2.0943951] rad`。真机
 `robot_state_publisher` 使用 `frame_prefix=piperh/`，所以 TF 中对应为
 `piperh/Link6`、`piperh/pulse_tool_envelope` 和 `piperh/pulse_tip_center`。
 `pulse_tool_envelope` 是碰撞/显示包络，`pulse_tip_center` 是距 Link6 原点
@@ -402,3 +430,47 @@ ros2 launch rebot_xbox_hardware dual_arm_hardware.launch.py \
 `piperh/Link6` 的 XYZ 和共同接触法向后，才填写 `calibrated_sensor_offsets_m`、
 `contact_normal_xyz` 并将 `geometry_calibrated` 改为 `true`；此时才会发布
 `piperh_pulse_s1`、`piperh_pulse_s2`、`piperh_pulse_s3` 三个静态 TF。
+
+### Piper-H 正式自动标定到位检查
+
+`piperh_auto_handeye` 在每个标定轨迹 action 成功后，继续读取标定已有的 `joint_state_topic` 真机反馈（Piper-H 面板配置为 `/piperh/joint_states`，由硬件适配器的真实 CAN 关节帧生成），而不是将 action success 直接当作到位成功。初始 Anchor 采样也先完成此检查。
+
+| 参数 | 默认值 | 条件 |
+|---|---|---|
+| `max_detection_age` | 0.25 | 图像采集时间戳到观测消费时的最大允许延迟，单位秒 |
+| `max_future_timestamp_wait_sec` | 0.5 | 相机时间戳略超前时，等待 ROS 时钟追上该帧的最大时间；等待后仍执行关节时间同步和 TF 门控 |
+| `robot_tf_wait_sec` | 0.1 | 查询图像时刻的机器人 TF 时，等待 TF 缓存补齐的最大时间；始终查询精确图像时间戳 |
+| `joint_candidate_pool_size` | 768 | Bootstrap 后用 MoveIt FK 评估的 J1–J5 候选数量；J6 始终保持 Anchor 值 |
+| `j4_zero_exclusion_deg` | 0.30 | Train、Selection、Test 候选及实际规划末点的 J4 零位禁区半宽；禁区内候选不执行，设为 0 可禁用 |
+| `joint_arrival_tolerance_deg` | 0.11 | J1–J6 的目标残差绝对值均严格小于该值 |
+| `stable_duration` | 1.0 | 连续稳定窗口，单位秒 |
+| `stable_position_variation_deg` | 0.01 | 窗口内每个关节的 max−min 严格小于该值 |
+| `arrival_timeout_sec` | 10.0 | action 成功之后的独立到位等待超时 |
+| `anchor_translation_threshold` | 0.0011 | 返回 Anchor 后 Link5 平移偏差上限，单位米（1.1 mm） |
+| `anchor_rotation_threshold` | 0.25 | 返回 Anchor 后 Link5 旋转偏差上限，单位度 |
+| `anchor_goal_tolerance_rad` | 0.0005 | 返回 Anchor 时允许的 MoveIt 规划末点关节偏差 |
+| `bootstrap_goal_tolerance_rad` | 0.0005 | 仅 Bootstrap 候选动作的 MoveIt 规划目标容差 |
+| `bootstrap_velocity_scaling` | 0.4 | 仅 Bootstrap 候选动作的速度缩放 |
+| `bootstrap_acceleration_scaling` | 0.25 | 仅 Bootstrap 候选动作的加速度缩放 |
+| `bootstrap_convergence_retries` | 1 | 首次严格到位超时后的微量收敛重规划次数 |
+
+只有到位且稳定后才返回运动完成状态，随后进入已有图像采集/样本记录流程。到位窗口只接受 action 完成后的新反馈，过滤不完整/重复关节、非有限值、过期、重复或倒退时间戳；反馈间断超过 0.75 秒重新计时。J6 虽锁定也参与检查。总体动作耗时增加至少一个稳定窗口，最长增加到位等待超时。
+
+超时输出 command target、实际下发轨迹末点、当前反馈、六关节有符号残差、最大绝对误差关节和反馈年龄。Bootstrap 首次超时不采样，而是从当前真实反馈向上次下发的轨迹末点做一次严格的小范围收敛；再次失败才终止自动标定。没有反馈时明确输出 unavailable。Anchor 综合旋转偏差限制为 `0.25 deg`，用于容纳多个关节在各自到位容差内产生的姿态叠加误差。
+
+此检查仅用于正式自动标定，不改变普通运动、Anchor repeatability、record-only 手动记录或标定求解器。到位参考采用实际发送给 controller 的轨迹最终关节点；原请求目标与规划末点同时写入失败日志，规划偏差不会被隐藏。action success 仍不能替代真实 CAN feedback 的 0.11°/连续 1 秒到位门槛。
+
+MoveIt 的 `bootstrap_goal_tolerance_rad=0.0005 rad` 与 controller 完成容差职责不同：前者限制规划末点相对命令目标的偏差；后者使用正式门槛对应的 `0.11°`（约 `0.001919862 rad`），让 controller 保持驱动直到具备进入严格稳定窗口的条件。动作返回后，CAN feedback 到位窗口仍独立要求所有关节严格小于 0.11°并连续稳定 1 秒，必要时执行收敛重规划。
+
+Bootstrap 的独立 holdout 不再固定取最后三个姿态。节点会优先从动作序列的不同阶段选取验证样本，并只接受仍能让训练集满足旋转方向均衡度、最大相对旋转和平移跨度门槛的划分；最终索引及训练集指标写入 `bootstrap_split.yaml`。
+
+`calibration_workspace_mode` 是统一的采集模式开关。`local` 模式下，Train、Selection 和 Test 的候选及运动后实测观测都必须同时满足标定板倾角 `<25°` 和 `camera_T_target.z<0.48 m`；`global` 模式不施加这两项局部限制，保留全局位置和姿态。把脉正式配置默认为 `local`，启动时仍可显式传入 `calibration_workspace_mode:=global` 切换到全局模式。
+
+Test 会在执行前用最终冻结的手眼外参和板位姿重新计算剩余候选的相机位姿，先过滤视野、投影面积和工作域，再预注册 20 个与 Train/Selection 不重复的姿态。预注册后的观测结果不做替换，至少 16 个有效 Test 才允许通过。在 `local` 模式下，运动后实测超出局部工作域的样本会记录为 `measured_workspace_constraints`，不进入求解或 Test 指标。
+
+候选池生成时会排除 `|J4| < j4_zero_exclusion_deg` 的目标，避免实机在 J4 零位附近因死区或静摩擦停在零位。MoveIt 规划后还会检查实际轨迹末点；若规划末点重新落入禁区，该候选会在下发前被拒绝并记录失败。此限制只作用于 Train、Selection、Test 候选，不作用于 Anchor 返回和 Bootstrap。
+
+自适应追加通常每轮请求 8 个有效姿态，常规轮次至少需要 4 个。接近
+`maximum_calibration_samples` 时，末轮可能少于 4 个；此时以剩余容量作为请求数和
+最低有效数。例如已有 77/80 个姿态时，末轮采满剩余 3 个即可进入下一次求解，
+不会再因通用的 4 点门槛误报失败。

@@ -4,6 +4,7 @@
 #include <atomic>
 #include <array>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -94,8 +95,11 @@ private Q_SLOTS:
   void toggleCamera();
   void toggleHandVision();
   void startPulseApproach();
+  void startBoardCornerApproach();
   void refreshHandVisionTopics();
   void selectHandVisionTopic(const QString & topic);
+  void refreshSavedHandeyeCalibrations();
+  void selectSavedHandeyeCalibration(int index);
   void toggleHandeyeCalibration();
   void refreshCameraTopics();
   void selectCameraTopic(const QString & topic);
@@ -162,15 +166,19 @@ private:
 
   struct ValidityState
   {
-    std::atomic<bool> pending{false};
-    std::atomic<bool> valid{false};
-    std::atomic<std::int64_t> response_ms{0};
+    std::mutex mutex;
+    bool pending{false};
+    bool valid{false};
+    std::int64_t request_ms{0};
+    std::int64_t response_ms{0};
+    std::uint64_t generation{0};
   };
 
   void startDemo(
     const QString & executable, const QString & title,
     bool require_confirmation = true);
   void setStatus(const QString & zh, const QString & en, bool error = false);
+  void setPulseActionStatus(const QString & zh, const QString & en, bool error = false);
   void retranslateUi();
   QString localized(const QString & zh, const QString & en) const;
   QString operationTitle(const QString & executable, bool chinese) const;
@@ -187,8 +195,11 @@ private:
   void configureMoveItCalibrationDisplay(const QStringList & fields, bool eye_in_hand);
   void removeMoveItCalibrationDisplay();
   QString automaticHandeyeSequenceName() const;
+  QString selectedHandeyeCalibrationName() const;
+  QString handeyeCalibrationFileForName(const QString & name) const;
   QString handeyeCalibrationFile() const;
   void restartHandeyePublisher();
+  bool stopHandeyePublisher();
   QString selectedTeachAction() const;
   QString selectedDrawingSource() const;
   QString selectedTeachSequence() const;
@@ -222,6 +233,7 @@ private:
   void clearPlannedPathDisplay();
   bool cameraNodeRunning() const;
   bool cameraStreamPublished() const;
+  void signalCameraProcess(int signal);
   void showCameraImage(const QImage & image);
   void showHandVisionImage(const QImage & image);
   void showHandVisionLargeView();
@@ -239,11 +251,13 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr pulse_point_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr pulse_base_point_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr piper_pulse_base_point_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr piper_board_corner_sub_;
   rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr xbox_armed_sub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr teach_status_sub_;
   std::function<void(const std_msgs::msg::String::SharedPtr)> teach_status_handler_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr auto_handeye_status_sub_;
+  rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pulse_calibration_selection_pub_;
   rclcpp::Subscription<std_msgs::msg::String>::SharedPtr forbidden_zone_status_sub_;
   std::function<void(
       const QString &, const std_msgs::msg::String::SharedPtr)>
@@ -274,6 +288,7 @@ private:
   rclcpp::Client<Trigger>::SharedPtr teach_reset_client_;
   rclcpp::Client<Trigger>::SharedPtr teach_pause_client_;
   rclcpp::Client<Trigger>::SharedPtr teach_clear_selection_client_;
+  rclcpp::Client<Trigger>::SharedPtr auto_handeye_cancel_client_;
   rclcpp::Client<Trigger>::SharedPtr forbidden_zone_reload_client_;
   rclcpp::Client<ConfigureForbiddenZone>::SharedPtr forbidden_zone_configure_client_;
   rclcpp_action::Client<ExecuteTrajectory>::SharedPtr execute_client_;
@@ -289,6 +304,7 @@ private:
   sensor_msgs::msg::JointState::SharedPtr latest_joint_state_;
   geometry_msgs::msg::PointStamped::SharedPtr latest_pulse_point_;
   geometry_msgs::msg::PointStamped::SharedPtr latest_piper_pulse_point_;
+  geometry_msgs::msg::PointStamped::SharedPtr latest_piper_board_corner_;
   std::atomic<std::int64_t> last_feedback_ms_{0};
   std::atomic<bool> xbox_state_known_{false};
   std::atomic<bool> xbox_armed_{true};
@@ -296,15 +312,23 @@ private:
   std::atomic<bool> camera_detected_{false};
   std::atomic<bool> camera_stream_published_{false};
   std::atomic<bool> camera_stop_requested_{false};
+  qint64 camera_process_group_id_{0};
+  qint64 recoverable_camera_process_group_id_{0};
+  bool camera_process_uses_group_{false};
   std::atomic<std::uint64_t> free_planning_display_generation_{0};
   bool free_planning_visible_{false};
   QString last_motion_planning_result_;
   std::atomic<std::int64_t> last_camera_image_ms_{0};
   std::atomic<std::int64_t> last_camera_render_ms_{0};
-  std::atomic<std::int64_t> last_camera_frame_ms_{0};
+  std::atomic<bool> camera_render_pending_{false};
+  std::atomic<std::uint64_t> camera_subscription_generation_{0};
   std::atomic<std::int64_t> last_hand_vision_image_ms_{0};
+  std::atomic<std::int64_t> last_hand_vision_render_ms_{0};
+  std::atomic<bool> hand_vision_render_pending_{false};
   std::atomic<std::int64_t> last_pulse_point_ms_{0};
   std::atomic<std::int64_t> last_piper_pulse_point_ms_{0};
+  std::atomic<std::int64_t> last_piper_board_corner_ms_{0};
+  bool board_corner_motion_requested_{false};
   std::atomic<int> teach_state_{0};
   std::atomic<bool> teach_hardware_allowed_{false};
   std::atomic<bool> teach_normal_feedback_ready_{false};
@@ -411,14 +435,23 @@ private:
   QDialog * hand_vision_large_dialog_{nullptr};
   QLabel * hand_vision_large_label_{nullptr};
   QPushButton * pulse_approach_button_;
+  QPushButton * board_corner_approach_button_;
+  QLabel * pulse_action_status_label_;
   QDoubleSpinBox * pulse_standoff_spin_;
+  QLabel * piper_standoff_label_;
+  QDoubleSpinBox * piper_standoff_spin_;
   QLabel * hand_vision_topic_label_;
   QComboBox * hand_vision_topic_combo_;
   QPushButton * hand_vision_topic_refresh_button_;
+  QLabel * hand_vision_calibration_label_;
+  QComboBox * hand_vision_calibration_combo_;
+  QPushButton * hand_vision_calibration_refresh_button_;
   QLabel * handeye_status_label_;
   QPushButton * handeye_button_;
   QComboBox * handeye_backend_combo_;
   QComboBox * handeye_mode_combo_;
+  QComboBox * handeye_workspace_combo_;
+  QLabel * handeye_workspace_constraints_label_;
   QComboBox * handeye_target_combo_;
   QLineEdit * handeye_name_edit_;
   QLineEdit * handeye_robot_base_edit_;
@@ -519,9 +552,14 @@ private:
   QProcess * hand_vision_process_;
   QProcess * handeye_process_;
   QProcess * handeye_publish_process_;
+  bool handeye_adaptive_run_{false};
+  bool handeye_run_saved_{false};
+  QString handeye_failure_detail_;
   QTimer * readiness_timer_;
   QImage latest_camera_image_;
   QImage latest_hand_vision_image_;
+  std::mutex camera_rate_mutex_;
+  std::deque<std::int64_t> camera_frame_times_ms_;
   QString camera_image_topic_{QStringLiteral("/camera/color/image_raw")};
   QString hand_vision_color_topic_{QStringLiteral("/camera/color/image_raw")};
   bool camera_image_visible_{false};
@@ -542,6 +580,7 @@ private:
   QMap<QString, QStringList> forbidden_zone_user_group_members_;
   QString model_{"dm"};
   QString active_executable_;
+  double active_piper_standoff_mm_{100.0};
   bool pulse_dummy_pressure_stopped_{false};
   QString pulse_process_output_tail_;
   QString active_robot_{QStringLiteral("rebotarm")};

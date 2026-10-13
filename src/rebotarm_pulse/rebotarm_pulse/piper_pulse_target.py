@@ -9,7 +9,7 @@ from pathlib import Path
 import time
 
 from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus, KeyValue
-from geometry_msgs.msg import PointStamped, TransformStamped, Vector3Stamped
+from geometry_msgs.msg import Point, PointStamped, TransformStamped, Vector3Stamped
 import rclpy
 from rclpy.duration import Duration
 from rclpy.node import Node
@@ -87,6 +87,9 @@ class PiperPulseTarget(Node):
         self.declare_parameter(
             "arm_direction_topic", "/meridian_hand_vision/arm_direction"
         )
+        self.declare_parameter(
+            "surface_normal_topic", "/meridian_hand_vision/surface_normal"
+        )
         self.declare_parameter("planning_frame", "piperh_planning_world")
         self.declare_parameter("calibration_name", "piperh_camera_eye_in_hand")
         # The camera driver and easy_handeye2 cannot both own the same optical
@@ -160,6 +163,9 @@ class PiperPulseTarget(Node):
         self.arm_direction_publisher = self.create_publisher(
             Vector3Stamped, "/piperh/pulse/arm_direction", 10
         )
+        self.surface_normal_publisher = self.create_publisher(
+            Vector3Stamped, "/piperh/pulse/surface_normal", 10
+        )
         self.diagnostic_publisher = self.create_publisher(
             DiagnosticArray, "/piperh/pulse/target_diagnostics", 10
         )
@@ -188,6 +194,12 @@ class PiperPulseTarget(Node):
             Vector3Stamped,
             str(self.get_parameter("arm_direction_topic").value),
             self.observe_arm_direction,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            Vector3Stamped,
+            str(self.get_parameter("surface_normal_topic").value),
+            self.observe_surface_normal,
             qos_profile_sensor_data,
         )
 
@@ -686,6 +698,47 @@ class PiperPulseTarget(Node):
             )
             return
         self.arm_direction_publisher.publish(direction)
+
+    def observe_surface_normal(self, message: Vector3Stamped) -> None:
+        if not message.header.frame_id:
+            self._safe_log("target_drop", stage="SURFACE_NORMAL", reason="EMPTY_FRAME_ID")
+            return
+        try:
+            normal = self._transform_vector(message)
+        except TransformException as error:
+            self._safe_log(
+                "tf_failure", stage="SURFACE_NORMAL", reason="TF_LOOKUP_FAILED",
+                exception=str(error),
+            )
+            return
+        except Exception as error:
+            self._safe_log(
+                "exception", stage="SURFACE_NORMAL", reason="INTERNAL_EXCEPTION",
+                exception=repr(error),
+            )
+            return
+        self.surface_normal_publisher.publish(normal)
+        if self._last_valid_target is not None:
+            vector = normal.vector
+            length = math.sqrt(vector.x * vector.x + vector.y * vector.y + vector.z * vector.z)
+            if length > 1e-6:
+                nx, ny, nz = vector.x / length, vector.y / length, vector.z / length
+                target = self._last_valid_target.point
+                marker = Marker()
+                marker.header = normal.header
+                marker.header.stamp = self.get_clock().now().to_msg()
+                marker.ns = "piper_surface_normal"
+                marker.id = 2
+                marker.type = Marker.ARROW
+                marker.action = Marker.ADD
+                marker.points = [
+                    Point(x=target.x - 0.12 * nx, y=target.y - 0.12 * ny, z=target.z - 0.12 * nz),
+                    Point(x=target.x, y=target.y, z=target.z),
+                ]
+                marker.scale.x, marker.scale.y, marker.scale.z = 0.006, 0.012, 0.018
+                marker.color.r, marker.color.g, marker.color.b, marker.color.a = 0.1, 0.5, 1.0, 0.95
+                marker.lifetime.nanosec = 500_000_000
+                self.marker_publisher.publish(marker)
 
 
 def main() -> None:

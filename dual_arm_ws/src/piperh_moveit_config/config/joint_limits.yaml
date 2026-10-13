@@ -1,7 +1,11 @@
 joint_limits:
   joint1: {has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
-  joint2: {has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
-  joint3: {has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  # Planning-only start-state envelope for raw CAN zero disagreement. The
+  # hardware adapter keeps the official [0, pi] command limit.
+  joint2: {has_position_limits: true, min_position: -0.1, max_position: 3.1415926, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
+  # Planning-only envelope; the official hardware command limit remains
+  # [-2.9670597, 0].
+  joint3: {has_position_limits: true, min_position: -2.9670597, max_position: 0.1, has_velocity_limits: true, max_velocity: 0.5, has_acceleration_limits: true, max_acceleration: 1.0}
   joint4: {has_velocity_limits: true, max_velocity: 0.7, has_acceleration_limits: true, max_acceleration: 1.4}
   joint5: {has_velocity_limits: true, max_velocity: 0.7, has_acceleration_limits: true, max_acceleration: 1.4}
   joint6: {has_velocity_limits: true, max_velocity: 0.7, has_acceleration_limits: true, max_acceleration: 1.4}

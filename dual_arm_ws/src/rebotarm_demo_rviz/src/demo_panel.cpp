@@ -4,6 +4,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <csignal>
+#include <unistd.h>
 
 #include <QComboBox>
 #include <QCheckBox>
@@ -14,6 +16,7 @@
 #include <QDialog>
 #include <QDockWidget>
 #include <QFileDialog>
+#include <QFile>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -65,6 +68,14 @@ namespace rebotarm_demo_rviz
 namespace
 {
 
+// Let ROS launch stop its children instead of orphaning them with SIGTERM.
+void requestHandeyeLaunchStop(QProcess * process)
+{
+  if (process && process->state() != QProcess::NotRunning && process->processId() > 0) {
+    ::kill(static_cast<pid_t>(process->processId()), SIGINT);
+  }
+}
+
 const QString kAutoHandeyeEyeOnBaseSequenceName =
   QStringLiteral("自动手眼标定_DM_12姿态");
 const QString kAutoHandeyeEyeInHandSequenceName =
@@ -86,6 +97,78 @@ QString lastNonEmptyLine(const QString & output)
 {
   const auto lines = output.split('\n', Qt::SkipEmptyParts);
   return lines.isEmpty() ? QString() : lines.last().trimmed();
+}
+
+QString lastUsefulProcessLine(const QString & output)
+{
+  const auto lines = output.split('\n', Qt::SkipEmptyParts);
+  for (auto iterator = lines.crbegin(); iterator != lines.crend(); ++iterator) {
+    const QString line = iterator->trimmed();
+    // ros2run prints this generic trailer after the node has already emitted
+    // its structured summary. It must not hide the actionable blocker.
+    if (line.contains(QStringLiteral("[ros2run]: Process exited with failure")) ||
+      line.contains(QStringLiteral("[ros2run]: process has died")))
+    {
+      continue;
+    }
+    if (!line.isEmpty()) {return line;}
+  }
+  return QString();
+}
+
+QString summaryField(const QString & output, const QString & field)
+{
+  const QString marker = field + QStringLiteral("=");
+  const auto lines = output.split('\n', Qt::SkipEmptyParts);
+  for (auto iterator = lines.crbegin(); iterator != lines.crend(); ++iterator) {
+    if (!iterator->contains(QStringLiteral("[SUMMARY]"))) {continue;}
+    const qsizetype start = iterator->indexOf(marker);
+    if (start < 0) {continue;}
+    const qsizetype value_start = start + marker.size();
+    qsizetype value_end = iterator->indexOf(' ', value_start);
+    if (value_end < 0) {value_end = iterator->size();}
+    return iterator->mid(value_start, value_end - value_start).trimmed();
+  }
+  return QString();
+}
+
+qint64 recoverableGemini2ProcessGroup()
+{
+  qint64 matched_group = 0;
+  const auto process_directories = QDir(QStringLiteral("/proc")).entryList(
+    QDir::Dirs | QDir::NoDotAndDotDot);
+  for (const QString & directory : process_directories) {
+    bool numeric = false;
+    const qint64 process_id = directory.toLongLong(&numeric);
+    if (!numeric || process_id <= 1) {continue;}
+
+    QFile command_line(QStringLiteral("/proc/%1/cmdline").arg(process_id));
+    if (!command_line.open(QIODevice::ReadOnly)) {continue;}
+    const auto arguments = command_line.readAll().split('\0');
+    bool gemini_launch = false;
+    for (int index = 0; index + 2 < arguments.size(); ++index) {
+      if (arguments[index] == "launch" &&
+        arguments[index + 1] == "orbbec_camera" &&
+        arguments[index + 2] == "gemini2.launch.py")
+      {
+        gemini_launch = true;
+        break;
+      }
+    }
+    if (!gemini_launch) {continue;}
+
+    const auto group_id = static_cast<qint64>(
+      ::getpgid(static_cast<pid_t>(process_id)));
+    // Only adopt a launch which is the leader of its own process group. This
+    // is how this panel starts Gemini 2 through setsid. Never signal a shell's
+    // shared group merely because it contains a similarly named command.
+    if (group_id <= 1 || group_id != process_id) {continue;}
+    if (matched_group > 0 && matched_group != group_id) {
+      return -1;  // Multiple candidates are ambiguous; refuse to stop either.
+    }
+    matched_group = group_id;
+  }
+  return matched_group;
 }
 
 QImage imageMessageToQImage(const sensor_msgs::msg::Image & message)
@@ -330,6 +413,18 @@ DemoPanel::DemoPanel(QWidget * parent)
   hand_vision_topic_row->addWidget(hand_vision_topic_combo_, 1);
   hand_vision_topic_row->addWidget(hand_vision_topic_refresh_button_);
   hand_vision_layout->addLayout(hand_vision_topic_row);
+  auto * hand_vision_calibration_row = new QHBoxLayout();
+  hand_vision_calibration_label_ = new QLabel(hand_vision_page);
+  hand_vision_calibration_combo_ = new QComboBox(hand_vision_page);
+  hand_vision_calibration_combo_->setObjectName(
+    QStringLiteral("hand_vision_calibration_combo"));
+  hand_vision_calibration_refresh_button_ = new QPushButton(hand_vision_page);
+  hand_vision_calibration_refresh_button_->setObjectName(
+    QStringLiteral("hand_vision_calibration_refresh_button"));
+  hand_vision_calibration_row->addWidget(hand_vision_calibration_label_);
+  hand_vision_calibration_row->addWidget(hand_vision_calibration_combo_, 1);
+  hand_vision_calibration_row->addWidget(hand_vision_calibration_refresh_button_);
+  hand_vision_layout->addLayout(hand_vision_calibration_row);
   hand_vision_status_label_ = new QLabel(hand_vision_page);
   hand_vision_status_label_->setObjectName(QStringLiteral("hand_vision_status_label"));
   hand_vision_status_label_->setWordWrap(true);
@@ -365,11 +460,37 @@ DemoPanel::DemoPanel(QWidget * parent)
   pulse_standoff_row->addWidget(pulse_standoff_spin_);
   pulse_standoff_row->addStretch(1);
   hand_vision_layout->addLayout(pulse_standoff_row);
+  auto * piper_standoff_row = new QHBoxLayout();
+  piper_standoff_label_ = new QLabel(hand_vision_page);
+  piper_standoff_label_->setObjectName(QStringLiteral("piper_standoff_label"));
+  piper_standoff_spin_ = new QDoubleSpinBox(hand_vision_page);
+  piper_standoff_spin_->setObjectName(QStringLiteral("piper_standoff_spin"));
+  piper_standoff_spin_->setRange(20.0, 400.0);
+  piper_standoff_spin_->setDecimals(0);
+  piper_standoff_spin_->setSingleStep(1.0);
+  piper_standoff_spin_->setSuffix(QStringLiteral(" mm"));
+  piper_standoff_spin_->setValue(100.0);
+  piper_standoff_row->addWidget(piper_standoff_label_);
+  piper_standoff_row->addWidget(piper_standoff_spin_);
+  piper_standoff_row->addStretch(1);
+  hand_vision_layout->addLayout(piper_standoff_row);
   pulse_approach_button_ = new QPushButton(hand_vision_page);
   pulse_approach_button_->setObjectName(QStringLiteral("pulse_approach_button"));
   hand_vision_layout->addWidget(pulse_approach_button_);
+  board_corner_approach_button_ = new QPushButton(hand_vision_page);
+  board_corner_approach_button_->setObjectName(
+    QStringLiteral("board_corner_approach_button"));
+  hand_vision_layout->addWidget(board_corner_approach_button_);
+  pulse_action_status_label_ = new QLabel(hand_vision_page);
+  pulse_action_status_label_->setObjectName(QStringLiteral("pulse_action_status_label"));
+  pulse_action_status_label_->setWordWrap(true);
+  pulse_action_status_label_->setText(QStringLiteral("尚未执行 Link6 悬停动作。"));
+  hand_vision_layout->addWidget(pulse_action_status_label_);
   hand_vision_layout->addStretch(1);
   main_tabs_->addTab(hand_vision_page, QString());
+  connect(
+    piper_standoff_spin_, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+    [this](double) {retranslateUi();});
 
   auto * handeye_page = new QWidget(main_tabs_);
   auto * handeye_layout = new QVBoxLayout(handeye_page);
@@ -395,6 +516,17 @@ DemoPanel::DemoPanel(QWidget * parent)
     QStringLiteral("眼在手外（固定相机）"), QStringLiteral("eye_on_base"));
   handeye_mode_combo_->addItem(
     QStringLiteral("眼在手上（末端相机）"), QStringLiteral("eye_in_hand"));
+  handeye_workspace_combo_ = new QComboBox(handeye_page);
+  handeye_workspace_combo_->setObjectName(QStringLiteral("handeye_workspace_combo"));
+  handeye_workspace_combo_->addItem(
+    QStringLiteral("全局覆盖"), QStringLiteral("global"));
+  handeye_workspace_combo_->addItem(
+    QStringLiteral("任务工作域"), QStringLiteral("local"));
+  handeye_workspace_combo_->setCurrentIndex(1);
+  handeye_workspace_constraints_label_ = new QLabel(handeye_page);
+  handeye_workspace_constraints_label_->setObjectName(
+    QStringLiteral("handeye_workspace_constraints_label"));
+  handeye_workspace_constraints_label_->setWordWrap(true);
   handeye_target_combo_ = new QComboBox(handeye_page);
   handeye_target_combo_->setObjectName(QStringLiteral("handeye_target_combo"));
   handeye_target_combo_->addItem(
@@ -442,6 +574,8 @@ DemoPanel::DemoPanel(QWidget * parent)
     };
   add_handeye_field(QStringLiteral("handeye_backend_label"), QStringLiteral("标定包"), handeye_backend_combo_);
   add_handeye_field(QStringLiteral("handeye_mode_label"), QStringLiteral("标定模式"), handeye_mode_combo_);
+  add_handeye_field(QStringLiteral("handeye_workspace_label"), QStringLiteral("标定工作域"), handeye_workspace_combo_);
+  add_handeye_field(QStringLiteral("handeye_workspace_constraints_title"), QStringLiteral("当前约束"), handeye_workspace_constraints_label_);
   add_handeye_field(QStringLiteral("handeye_target_label"), QStringLiteral("标定目标"), handeye_target_combo_);
   add_handeye_field(QStringLiteral("handeye_name_label"), QStringLiteral("名称"), handeye_name_edit_);
   add_handeye_field(QStringLiteral("handeye_robot_base_label"), QStringLiteral("机器人基座 frame"), handeye_robot_base_edit_);
@@ -467,6 +601,9 @@ DemoPanel::DemoPanel(QWidget * parent)
   connect(
     handeye_tag_family_combo_, &QComboBox::currentTextChanged, this, update_tag_id_range);
   update_tag_id_range(handeye_tag_family_combo_->currentText());
+  connect(
+    handeye_workspace_combo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
+    [this](int) {retranslateUi();});
   connect(
     handeye_target_combo_, qOverload<int>(&QComboBox::currentIndexChanged), this,
     [this](int) {
@@ -513,10 +650,7 @@ DemoPanel::DemoPanel(QWidget * parent)
         handeye_name_edit_->setText(prefix);
       }
       if (initialized_) {
-        if (handeye_publish_process_->state() != QProcess::NotRunning) {
-          handeye_publish_process_->terminate();
-          handeye_publish_process_->waitForFinished(1000);
-        }
+        if (!stopHandeyePublisher()) {return;}
         QTimer::singleShot(0, this, &DemoPanel::restartHandeyePublisher);
         updateReadiness();
       }
@@ -1322,33 +1456,23 @@ DemoPanel::DemoPanel(QWidget * parent)
     this, &DemoPanel::showHandVisionLargeView);
   connect(pulse_approach_button_, &QPushButton::clicked, this, &DemoPanel::startPulseApproach);
   connect(
+    board_corner_approach_button_, &QPushButton::clicked,
+    this, &DemoPanel::startBoardCornerApproach);
+  connect(
     hand_vision_topic_refresh_button_, &QPushButton::clicked,
     this, &DemoPanel::refreshHandVisionTopics);
   connect(
     hand_vision_topic_combo_, &QComboBox::currentTextChanged,
     this, &DemoPanel::selectHandVisionTopic);
+  connect(
+    hand_vision_calibration_refresh_button_, &QPushButton::clicked,
+    this, &DemoPanel::refreshSavedHandeyeCalibrations);
+  connect(
+    hand_vision_calibration_combo_, qOverload<int>(&QComboBox::currentIndexChanged),
+    this, &DemoPanel::selectSavedHandeyeCalibration);
   connect(handeye_button_, &QPushButton::clicked, this, &DemoPanel::toggleHandeyeCalibration);
   connect(camera_topic_refresh_button_, &QPushButton::clicked, this, &DemoPanel::refreshCameraTopics);
   connect(camera_topic_combo_, &QComboBox::currentTextChanged, this, &DemoPanel::selectCameraTopic);
-  const auto select_stream = [this](QCheckBox * checkbox, const QString & topic) {
-      connect(checkbox, &QCheckBox::toggled, this, [this, topic](bool enabled) {
-        if (!initialized_) {return;}
-        if (enabled) {
-          subscribeCameraTopic(topic);
-        } else if (camera_image_topic_ == topic) {
-          if (camera_color_checkbox_->isChecked()) {
-            subscribeCameraTopic(QStringLiteral("/camera/color/image_raw"));
-          } else if (camera_depth_checkbox_->isChecked()) {
-            subscribeCameraTopic(QStringLiteral("/camera/depth/image_raw"));
-          } else if (camera_ir_checkbox_->isChecked()) {
-            subscribeCameraTopic(QStringLiteral("/camera/ir/image_raw"));
-          }
-        }
-      });
-    };
-  select_stream(camera_color_checkbox_, QStringLiteral("/camera/color/image_raw"));
-  select_stream(camera_depth_checkbox_, QStringLiteral("/camera/depth/image_raw"));
-  select_stream(camera_ir_checkbox_, QStringLiteral("/camera/ir/image_raw"));
   connect(
     forbidden_zone_reload_button_, &QPushButton::clicked,
     this, &DemoPanel::reloadForbiddenZones);
@@ -1555,10 +1679,46 @@ DemoPanel::DemoPanel(QWidget * parent)
       if (!line.isEmpty()) {camera_button_->setToolTip(line);}
     });
   connect(
+    camera_process_, &QProcess::started, this,
+    [this]() {
+      // When launched through setsid, the QProcess id is also the process-group
+      // id. Keep it after the launch parent exits so any orphaned driver can
+      // still be terminated from the finished handler.
+      camera_process_group_id_ = camera_process_uses_group_ ?
+        camera_process_->processId() : 0;
+    });
+  connect(
     camera_process_, qOverload<int, QProcess::ExitStatus>(&QProcess::finished), this,
     [this](int exit_code, QProcess::ExitStatus) {
       const bool requested = camera_stop_requested_.exchange(false);
+      const qint64 stopped_group_id = camera_process_uses_group_ ?
+        camera_process_group_id_ : 0;
+      if (stopped_group_id > 0) {
+        // ros2 launch can exit before every driver child. A final group-wide
+        // cleanup prevents such a child being mistaken for an external camera
+        // and permanently disabling the Open Camera button. Some SDK threads
+        // do not finish on SIGTERM, so reap the old group even though QProcess
+        // already considers its launch parent stopped.
+        ::kill(-static_cast<pid_t>(stopped_group_id), SIGTERM);
+        QTimer::singleShot(1200, this, [this, stopped_group_id]() {
+            if (::kill(-static_cast<pid_t>(stopped_group_id), 0) == 0) {
+              ::kill(-static_cast<pid_t>(stopped_group_id), SIGKILL);
+            }
+            // ROS graph discovery may lag process exit. Force the next timer
+            // tick to re-check instead of retaining the stale external state.
+            last_camera_graph_check_ms_ = 0;
+            updateReadiness();
+          });
+      }
+      camera_process_group_id_ = 0;
+      camera_process_uses_group_ = false;
       camera_detected_.store(cameraNodeRunning());
+      last_camera_image_ms_.store(0);
+      latest_camera_image_ = QImage();
+      camera_view_label_->clear();
+      camera_view_label_->setText(localized(
+        QStringLiteral("等待摄像头画面"), QStringLiteral("Waiting for camera image")));
+      camera_image_visible_ = false;
       setStatus(
         (requested || exit_code == 0) ? QStringLiteral("Gemini 2 摄像头已关闭。") :
         QStringLiteral("Gemini 2 摄像头进程已退出，代码 %1；详情见按钮提示。")
@@ -1574,6 +1734,8 @@ DemoPanel::DemoPanel(QWidget * parent)
     [this](QProcess::ProcessError error) {
       if (error != QProcess::FailedToStart) {return;}
       camera_stop_requested_.store(false);
+      camera_process_group_id_ = 0;
+      camera_process_uses_group_ = false;
       setStatus(
         QStringLiteral("无法启动摄像头：%1").arg(camera_process_->errorString()),
         QStringLiteral("Could not start camera: %1").arg(camera_process_->errorString()), true);
@@ -1611,10 +1773,19 @@ DemoPanel::DemoPanel(QWidget * parent)
     [this](int exit_code, QProcess::ExitStatus) {
       const bool moveit_backend = handeyeUsesMoveItCalibration();
       if (moveit_backend) {removeMoveItCalibrationDisplay();}
-      const bool saved = QFileInfo::exists(handeyeCalibrationFile());
+      // An older .calib file must never turn a failed/cancelled adaptive run
+      // into an apparent success or be republished as this run's result.
+      const QString output_name = handeye_name_edit_->text().trimmed();
+      const bool saved = QFileInfo::exists(handeyeCalibrationFileForName(output_name)) &&
+        (!handeye_adaptive_run_ || handeye_run_saved_);
+      const bool adaptive_failed = handeye_adaptive_run_ &&
+        !handeye_failure_detail_.isEmpty();
       handeye_status_label_->setText(moveit_backend ? localized(
         QStringLiteral("MoveIt Calibration 已停止；其结果需在插件中另行保存和加载。"),
         QStringLiteral("MoveIt Calibration stopped; save and load its result from the plugin.")) :
+        adaptive_failed ? localized(
+        QStringLiteral("自动标定失败：%1").arg(handeye_failure_detail_),
+        QStringLiteral("Automatic calibration failed: %1").arg(handeye_failure_detail_)) :
         saved ? localized(
         QStringLiteral("标定结果已保存，正在发布标定 TF。"),
         QStringLiteral("Calibration saved; publishing the calibration TF.")) :
@@ -1627,9 +1798,18 @@ DemoPanel::DemoPanel(QWidget * parent)
       handeye_button_->setEnabled(true);
       handeye_backend_combo_->setEnabled(true);
       handeye_mode_combo_->setEnabled(true);
+      handeye_workspace_combo_->setEnabled(true);
       handeye_target_combo_->setEnabled(!moveit_backend);
       handeye_name_edit_->setEnabled(!moveit_backend);
-      if (!moveit_backend && saved) {restartHandeyePublisher();}
+      if (!moveit_backend && saved) {
+        refreshSavedHandeyeCalibrations();
+        const int saved_index = hand_vision_calibration_combo_->findData(output_name);
+        if (saved_index >= 0) {hand_vision_calibration_combo_->setCurrentIndex(saved_index);}
+        restartHandeyePublisher();
+      }
+      handeye_adaptive_run_ = false;
+      handeye_run_saved_ = false;
+      handeye_failure_detail_.clear();
     });
   connect(
     handeye_publish_process_, &QProcess::readyReadStandardOutput, this,
@@ -1654,6 +1834,7 @@ DemoPanel::DemoPanel(QWidget * parent)
   setTeachStatus(
     QStringLiteral("等待示教服务和动作列表。"),
     QStringLiteral("Waiting for teaching services and action list."));
+  refreshSavedHandeyeCalibrations();
   retranslateUi();
 }
 
@@ -1701,6 +1882,7 @@ void DemoPanel::setActiveRobot(const QString & robot)
     handeye_robot_effector_edit_->setText(
       piper ? QStringLiteral("piperh/Link5") : QStringLiteral("gripper_tcp"));
   }
+  refreshSavedHandeyeCalibrations();
   forbidden_zone_status_seen_ = false;
   forbidden_zone_config_path_.clear();
   forbidden_zone_user_config_path_.clear();
@@ -1716,18 +1898,25 @@ void DemoPanel::setActiveRobot(const QString & robot)
   last_feedback_ms_.store(0);
   xbox_state_known_.store(false);
   xbox_armed_.store(true);
-  validity_state_->valid.store(false);
-  validity_state_->response_ms.store(0);
+  {
+    std::lock_guard<std::mutex> lock(validity_state_->mutex);
+    // Invalidate any response still in flight for the previous robot.  The
+    // callback captures this generation and must not overwrite the newly
+    // selected robot's validity state.
+    ++validity_state_->generation;
+    validity_state_->pending = false;
+    validity_state_->valid = false;
+    validity_state_->request_ms = 0;
+    validity_state_->response_ms = 0;
+  }
+  last_validity_request_ms_ = 0;
   teach_state_.store(0);
   teach_hardware_allowed_.store(false);
   if (initialized_) {
     // The pulse target transformer needs the saved camera-to-robot TF before it
     // can publish /piperh/pulse/target.  Robot selection also changes the
     // default calibration name, so replace any publisher for the previous arm.
-    if (handeye_publish_process_->state() != QProcess::NotRunning) {
-      handeye_publish_process_->terminate();
-      handeye_publish_process_->waitForFinished(1000);
-    }
+    if (!stopHandeyePublisher()) {return;}
     configureRobotInterfaces();
     configureForbiddenZoneInterfaces();
     ensureShapeMarkerDisplay();
@@ -1748,16 +1937,17 @@ DemoPanel::~DemoPanel()
 {
   restoreMotionPlanningPanel();
   if (camera_process_->state() != QProcess::NotRunning) {
-    camera_process_->terminate();
+    signalCameraProcess(SIGINT);
     if (!camera_process_->waitForFinished(3000)) {
-      camera_process_->kill();
+      signalCameraProcess(SIGKILL);
       camera_process_->waitForFinished(1000);
     }
   }
   for (auto * auxiliary : {hand_vision_process_, handeye_process_, handeye_publish_process_}) {
     if (auxiliary->state() != QProcess::NotRunning) {
-      auxiliary->terminate();
-      if (!auxiliary->waitForFinished(1000)) {auxiliary->kill(); auxiliary->waitForFinished(500);}
+      if (auxiliary == handeye_process_) {requestHandeyeLaunchStop(auxiliary);}
+      else {auxiliary->terminate();}
+      if (!auxiliary->waitForFinished(3000)) {auxiliary->kill(); auxiliary->waitForFinished(500);}
     }
   }
   if (process_->state() != QProcess::NotRunning) {
@@ -2108,14 +2298,26 @@ void DemoPanel::onInitialize()
   refreshCameraTopics();
   refreshHandVisionTopics();
   hand_vision_image_sub_ = node_->create_subscription<sensor_msgs::msg::Image>(
-    "/meridian_hand_vision/annotated_image", rclcpp::SensorDataQoS(),
+    "/meridian_hand_vision/annotated_image", rclcpp::SensorDataQoS().keep_last(1),
     [this](const sensor_msgs::msg::Image::SharedPtr message) {
-      last_hand_vision_image_ms_.store(steadyMilliseconds());
+      const auto now = steadyMilliseconds();
+      last_hand_vision_image_ms_.store(now);
+      auto previous_render = last_hand_vision_render_ms_.load();
+      if (now - previous_render < 66) {return;}
+      // Never enqueue more than one full-resolution image for the Qt thread.
+      // Keeping the pending flag set makes slow rendering drop intermediate
+      // frames instead of replaying them later as visible latency.
+      if (hand_vision_render_pending_.exchange(true)) {return;}
+      if (!last_hand_vision_render_ms_.compare_exchange_strong(previous_render, now)) {
+        hand_vision_render_pending_.store(false);
+        return;
+      }
       const QImage image = imageMessageToQImage(*message);
       const QString encoding = QString::fromStdString(message->encoding);
       QPointer<DemoPanel> self(this);
-      QMetaObject::invokeMethod(this, [self, image, encoding]() {
+      const bool queued = QMetaObject::invokeMethod(this, [self, image, encoding]() {
         if (!self) {return;}
+        self->hand_vision_render_pending_.store(false);
         if (image.isNull()) {
           self->hand_vision_status_label_->setText(self->localized(
             QStringLiteral("收到手部视觉图像，但编码不支持：%1").arg(encoding),
@@ -2124,6 +2326,7 @@ void DemoPanel::onInitialize()
         }
         self->showHandVisionImage(image);
       }, Qt::QueuedConnection);
+      if (!queued) {hand_vision_render_pending_.store(false);}
     });
   pulse_point_sub_ = node_->create_subscription<geometry_msgs::msg::PointStamped>(
     "/meridian_hand_vision/pulse_point", rclcpp::SensorDataQoS(),
@@ -2194,6 +2397,19 @@ void DemoPanel::onInitialize()
         self->pulse_region_label_->setStyleSheet(QStringLiteral("color: #3a9d23;"));
         self->updateReadiness();
       }, Qt::QueuedConnection);
+    });
+  piper_board_corner_sub_ =
+    node_->create_subscription<geometry_msgs::msg::PointStamped>(
+    "/piperh/calibration_board/lower_right_corner", rclcpp::SensorDataQoS(),
+    [this](const geometry_msgs::msg::PointStamped::SharedPtr message) {
+      {
+        std::lock_guard<std::mutex> lock(pulse_point_mutex_);
+        latest_piper_board_corner_ = message;
+      }
+      const auto acquisition_age_ms = std::max<std::int64_t>(
+        0, (node_->now() - rclcpp::Time(message->header.stamp)).nanoseconds() / 1000000);
+      last_piper_board_corner_ms_.store(steadyMilliseconds() - acquisition_age_ms);
+      QMetaObject::invokeMethod(this, [this]() {updateReadiness();}, Qt::QueuedConnection);
     });
 
   teach_status_handler_ =
@@ -2400,18 +2616,26 @@ void DemoPanel::onInitialize()
           if (!self || self->handeye_process_->state() == QProcess::NotRunning) {return;}
           if (calibration_type != self->handeye_mode_combo_->currentData().toString()) {return;}
           if (state == QStringLiteral("failed")) {
+            self->handeye_run_saved_ = false;
+            self->handeye_failure_detail_ = detail;
             self->handeye_status_label_->setText(self->localized(
               QStringLiteral("自动标定已停止：%1").arg(detail),
               QStringLiteral("Automatic calibration stopped: %1").arg(detail)));
             self->handeye_status_label_->setStyleSheet(QStringLiteral("color: #c43b32;"));
+            QTimer::singleShot(250, self->handeye_process_, [self]() {
+                if (self && self->handeye_process_->state() != QProcess::NotRunning) {
+                  requestHandeyeLaunchStop(self->handeye_process_);
+                }
+              });
             return;
           }
           if (state == QStringLiteral("saved")) {
+            self->handeye_run_saved_ = true;
             self->handeye_status_label_->setStyleSheet(QString());
             self->handeye_status_label_->setText(self->localized(
               QStringLiteral("自动标定已保存，正在结束标定并发布 TF。"),
               QStringLiteral("Automatic calibration saved; stopping calibration and publishing TF.")));
-            self->handeye_process_->terminate();
+            requestHandeyeLaunchStop(self->handeye_process_);
             QTimer::singleShot(1500, self->handeye_process_, [self]() {
                 if (self && self->handeye_process_->state() != QProcess::NotRunning) {
                   self->handeye_process_->kill();
@@ -2429,6 +2653,8 @@ void DemoPanel::onInitialize()
           }
         }, Qt::QueuedConnection);
     });
+  auto_handeye_cancel_client_ = node_->create_client<Trigger>(
+    "/rebotarm/handeye/cancel");
   forbidden_zone_status_handler_ =
     [this](const QString & robot, const std_msgs::msg::String::SharedPtr message) {
       if (active_robot_ != robot) {return;}
@@ -2594,6 +2820,15 @@ void DemoPanel::configureRobotInterfaces()
       return (prefix + suffix).toStdString();
     };
   const QString robot = active_robot_;
+
+  pulse_calibration_selection_pub_ = node_->create_publisher<std_msgs::msg::String>(
+    "/piperh/pulse/calibration_selection",
+    rclcpp::QoS(rclcpp::KeepLast(1)).reliable().transient_local());
+  if (active_robot_ == QStringLiteral("piperh")) {
+    std_msgs::msg::String selection;
+    selection.data = selectedHandeyeCalibrationName().toStdString();
+    pulse_calibration_selection_pub_->publish(selection);
+  }
 
   joint_state_sub_ = node_->create_subscription<sensor_msgs::msg::JointState>(
     endpoint(QStringLiteral("/joint_states")), rclcpp::SensorDataQoS(),
@@ -2859,13 +3094,25 @@ void DemoPanel::startSingularityEscape()
   updateReadiness();
 }
 
+void DemoPanel::startBoardCornerApproach()
+{
+  if (active_robot_ != QStringLiteral("piperh")) {return;}
+  board_corner_motion_requested_ = true;
+  startPulseApproach();
+  board_corner_motion_requested_ = false;
+}
+
 void DemoPanel::startPulseApproach()
 {
   const bool piper = active_robot_ == QStringLiteral("piperh");
+  const bool board_test = piper && board_corner_motion_requested_;
+  const auto report = [this](const QString & zh, const QString & en, bool error = false) {
+      setPulseActionStatus(zh, en, error);
+    };
   if (!xbox_state_known_.load() || xbox_armed_.load() || !feedbackFresh() ||
     !stateValidityFresh())
   {
-    setStatus(
+    report(
       QStringLiteral("无法前往把脉区：需要新鲜关节反馈、有效 MoveIt 状态和 Xbox LOCKED。"),
       QStringLiteral(
         "Cannot approach the pulse region: fresh joint feedback, a valid MoveIt state, "
@@ -2873,20 +3120,25 @@ void DemoPanel::startPulseApproach()
     return;
   }
   if (process_->state() != QProcess::NotRunning) {
-    setStatus(QStringLiteral("已有操作正在运行。请先停止。"),
+    report(QStringLiteral("已有操作正在运行。请先停止。"),
       QStringLiteral("Another operation is running. Stop it first."), true);
     return;
   }
-  const auto target_timestamp = piper ?
-    last_piper_pulse_point_ms_.load() : last_pulse_point_ms_.load();
+  const auto target_timestamp = board_test ? last_piper_board_corner_ms_.load() :
+    piper ? last_piper_pulse_point_ms_.load() : last_pulse_point_ms_.load();
   if (steadyMilliseconds() - target_timestamp >= (piper ? 1500 : 700)) {
     const bool camera_target_fresh =
       steadyMilliseconds() - last_pulse_point_ms_.load() < 700;
-    setStatus(piper && camera_target_fresh ?
+    report(board_test ?
+      QStringLiteral("未取得新鲜的标定板右下角点；请让整个标定板清晰可见并保持不动。") :
+      piper && camera_target_fresh ?
       QStringLiteral(
         "相机中的把脉区域已经稳定，但尚未取得 Piper-H 规划坐标目标；请检查手眼标定转换日志。") :
       QStringLiteral("把脉区域尚未稳定。请保持掌心朝向相机、手腕伸直并静止。"),
-      piper && camera_target_fresh ?
+      board_test ?
+      QStringLiteral(
+        "No fresh lower-right calibration-board corner is available; keep the whole board "
+        "clearly visible and stationary.") : piper && camera_target_fresh ?
       QStringLiteral(
         "The camera pulse region is stable, but no Piper-H planning-frame target is available; "
         "check the hand-eye transform log.") :
@@ -2897,7 +3149,7 @@ void DemoPanel::startPulseApproach()
   }
   const QString calibration = handeyeCalibrationFile();
   if (calibration.isEmpty() || !QFileInfo::exists(calibration)) {
-    setStatus(
+    report(
       QStringLiteral("未找到已保存的手眼标定；请先在“手眼标定”页完成 Compute 和 Save。"),
       QStringLiteral(
         "No saved hand-eye calibration was found. Complete Compute and Save on the "
@@ -2905,7 +3157,7 @@ void DemoPanel::startPulseApproach()
     return;
   }
   if (handeye_process_->state() != QProcess::NotRunning) {
-    setStatus(
+    report(
       QStringLiteral("手眼标定仍在运行；请先结束标定窗口再测试预接触规划。"),
       QStringLiteral(
         "Hand-eye calibration is still running; close it before testing pre-contact planning."),
@@ -2915,46 +3167,54 @@ void DemoPanel::startPulseApproach()
   geometry_msgs::msg::PointStamped::SharedPtr target;
   {
     std::lock_guard<std::mutex> lock(pulse_point_mutex_);
-    target = piper ? latest_piper_pulse_point_ : latest_pulse_point_;
+    target = board_test ? latest_piper_board_corner_ :
+      piper ? latest_piper_pulse_point_ : latest_pulse_point_;
   }
   if (!target) {
-    setStatus(
+    report(
+      board_test ? QStringLiteral("尚未缓存可用于规划的标定板右下角点。") :
       QStringLiteral("尚未缓存可用于规划的把脉目标；请保持手静止后重试。"),
-      QStringLiteral(
-        "No pulse target is cached for planning; hold the hand still and retry."),
+      board_test ? QStringLiteral("No calibration-board corner is cached for planning.") :
+      QStringLiteral("No pulse target is cached for planning; hold the hand still and retry."),
       true);
     return;
   }
   const double requested_speed = piper ?
     std::min(speed_spin_->value(), 5.0) : speed_spin_->value();
+  const double piper_standoff_mm = piper_standoff_spin_->value();
 
   QMessageBox confirmation(this);
   confirmation.setIcon(QMessageBox::Warning);
   confirmation.setWindowTitle(localized(
-    piper ? QStringLiteral("确认假体触压测试") : QStringLiteral("确认前往把脉预接触位"),
-    piper ? QStringLiteral("Confirm dummy pressure-stop test") :
+    board_test ? QStringLiteral("确认标定板角点验证") :
+    piper ? QStringLiteral("确认 Link6 蓝色 +Z 轴对准") : QStringLiteral("确认前往把脉预接触位"),
+    board_test ? QStringLiteral("Confirm calibration-board corner check") :
+    piper ? QStringLiteral("Confirm Link6 blue +Z alignment") :
     QStringLiteral("Confirm pulse pre-contact motion")));
+  const QString frame = QString::fromStdString(target->header.frame_id);
+  const QString piper_zh = board_test ? QStringLiteral(
+      "标定板目标：画面最右下的板外角点\n%1  X=%2, Y=%3, Z=%4 m\n"
+      "无工具 Link6 将沿标定板法向停在该角点上方 %5 mm，蓝色 +Z 轴指向角点。"
+      "这用于核对手眼标定，不会接触标定板。请确认红色十字确实标在所需角点、"
+      "工具已拆除、路径无人且急停可触达。") : QStringLiteral(
+      "视觉目标：%1  X=%2, Y=%3, Z=%4 m\n"
+      "工具已拆除：Link6 将移动到圆圈所在平面法向上方 %5 mm，蓝色 +Z 轴指向目标。"
+      "本动作不接触目标；请确认路径无人且急停可触达。");
+  const QString piper_en = board_test ? QStringLiteral(
+      "Board target: the physical board corner nearest the image lower-right.\n"
+      "%1  X=%2, Y=%3, Z=%4 m\nBare Link6 will hover %5 mm outward along the board "
+      "normal with blue +Z pointing at the corner. Confirm the red cross marks the intended "
+      "corner, the tool is removed, the path is clear, and emergency stop is reachable.") :
+    QStringLiteral(
+      "Visual target: %1  X=%2, Y=%3, Z=%4 m\nBare Link6 will hover %5 mm outward "
+      "along the target-plane normal with blue +Z pointing at the target. Confirm the path is clear.");
   confirmation.setText(piper ? localized(
-    QStringLiteral(
-      "仅限非人体假体！视觉目标：%1  X=%2, Y=%3, Z=%4 m\n"
-      "保持 J6 姿态，末端最多走到视觉目标，不越过目标；XY ≤300 mm、Z ≤200 mm，"
-      "笛卡尔速度 ≤5 mm/s，执行超时 90 秒。\n"
-      "出发后视觉目标冻结，遮挡不会停；压力变化达到阈值将请求取消。"
-      "这不是力控制，取消有延迟。"
-      "请确认假体固定、路径无人、急停可触达。")
-    .arg(QString::fromStdString(target->header.frame_id))
-    .arg(target->point.x, 0, 'f', 4).arg(target->point.y, 0, 'f', 4)
-    .arg(target->point.z, 0, 'f', 4),
-    QStringLiteral(
-      "NON-HUMAN DUMMY ONLY! Visual target: %1  X=%2, Y=%3, Z=%4 m\n"
-      "The tip moves no farther than the target with J6 orientation fixed; "
-      "XY ≤300 mm, Z ≤200 mm, Cartesian speed ≤5 mm/s, 90 s timeout.\n"
-      "The target is frozen after motion starts; visual dropout will not stop it. "
-      "Pressure change requests cancellation, not force control; cancellation may lag. "
-      "Confirm the dummy is fixed, the path is clear, and emergency stop is reachable.")
-    .arg(QString::fromStdString(target->header.frame_id))
-    .arg(target->point.x, 0, 'f', 4).arg(target->point.y, 0, 'f', 4)
-    .arg(target->point.z, 0, 'f', 4)) : localized(
+    piper_zh.arg(frame).arg(target->point.x, 0, 'f', 4)
+      .arg(target->point.y, 0, 'f', 4).arg(target->point.z, 0, 'f', 4)
+      .arg(piper_standoff_mm, 0, 'f', 0),
+    piper_en.arg(frame).arg(target->point.x, 0, 'f', 4)
+      .arg(target->point.y, 0, 'f', 4).arg(target->point.z, 0, 'f', 4)
+      .arg(piper_standoff_mm, 0, 'f', 0)) : localized(
     QStringLiteral(
       "检测点：%1  X=%2, Y=%3, Z=%4 m\n"
       "机械臂将以 %5% 速度规划并运动到距皮肤约 %6 mm 的预接触位。\n"
@@ -2979,27 +3239,33 @@ void DemoPanel::startPulseApproach()
     .arg(pulse_standoff_spin_->value(), 0, 'f', 0)
     .arg(QString())));
   auto * confirm = confirmation.addButton(
+    board_test ? localized(
+      QStringLiteral("确认前往板角点上方"), QStringLiteral("Move above board corner")) :
     piper ? localized(
-      QStringLiteral("确认在假体上前往目标"), QStringLiteral("Move to target on dummy")) :
+      QStringLiteral("确认沿蓝色 +Z 轴对准"), QStringLiteral("Align along blue +Z")) :
     localized(QStringLiteral("确认前往预接触位"), QStringLiteral("Move to pre-contact")),
     QMessageBox::AcceptRole);
   confirmation.addButton(localized(QStringLiteral("取消"), QStringLiteral("Cancel")),
     QMessageBox::RejectRole);
   confirmation.exec();
   if (confirmation.clickedButton() != confirm) {return;}
+  if (piper) {active_piper_standoff_mm_ = piper_standoff_mm;}
   if (piper) {
     geometry_msgs::msg::PointStamped::SharedPtr latest;
     {
       std::lock_guard<std::mutex> lock(pulse_point_mutex_);
-      latest = latest_piper_pulse_point_;
+      latest = board_test ? latest_piper_board_corner_ : latest_piper_pulse_point_;
     }
     // The planner owns the median+EMA stability window and drift debounce.  The
     // panel only rejects a genuinely stale stream; comparing two raw frames here
     // used to turn ordinary visual jitter into a hard failure.
-    if (!latest || steadyMilliseconds() - last_piper_pulse_point_ms_.load() >= 1500 ||
+    const auto latest_timestamp = board_test ? last_piper_board_corner_ms_.load() :
+      last_piper_pulse_point_ms_.load();
+    if (!latest || steadyMilliseconds() - latest_timestamp >= 1500 ||
       latest->header.frame_id != target->header.frame_id)
     {
-      setStatus(
+      report(
+        board_test ? QStringLiteral("确认期间标定板角点丢失或已超过 1.5 秒未更新。") :
         QStringLiteral("确认期间腕部目标丢失或已超过 1.5 秒未更新；请保持手静止后重试。"),
         QStringLiteral(
           "The wrist target was lost or stale for over 1.5 s; hold still and retry."),
@@ -3012,7 +3278,7 @@ void DemoPanel::startPulseApproach()
   const QString ros2 = QStandardPaths::findExecutable(QStringLiteral("ros2"));
   const QString config = pulseConfigPath();
   if (ros2.isEmpty() || config.isEmpty()) {
-    setStatus(QStringLiteral("找不到 rebotarm_pulse 或其参数文件。"),
+    report(QStringLiteral("找不到 rebotarm_pulse 或其参数文件。"),
       QStringLiteral("Could not find rebotarm_pulse or its parameter file."), true);
     return;
   }
@@ -3028,14 +3294,31 @@ void DemoPanel::startPulseApproach()
       QStringLiteral("-p"), QStringLiteral("velocity_scaling:=%1").arg(scale),
       QStringLiteral("-p"), QStringLiteral("acceleration_scaling:=%1").arg(scale)};
   if (piper) {
-    arguments.append({QStringLiteral("-p"), QStringLiteral("execute_motion:=true"),
-      QStringLiteral("-p"), QStringLiteral("dummy_contact_mode:=true")});
+    arguments.append({
+      QStringLiteral("-p"), QStringLiteral("execute_motion:=true"),
+      QStringLiteral("-p"), QStringLiteral("link6_hover_mode:=true"),
+      QStringLiteral("-p"), QStringLiteral("dummy_contact_mode:=false"),
+      QStringLiteral("-p"), QStringLiteral("tip_offset_m:=0.0"),
+      QStringLiteral("-p"), QStringLiteral("standoff_m:=%1").arg(
+        piper_standoff_mm / 1000.0, 0, 'f', 4),
+      QStringLiteral("-p"), QStringLiteral("maximum_horizontal_translation_m:=0.400"),
+      QStringLiteral("-p"), QStringLiteral("maximum_cartesian_speed_m_s:=0.005"),
+      QStringLiteral("-p"), QStringLiteral("result_timeout:=90.0")});
+    if (board_test) {
+      arguments.append({
+        QStringLiteral("-p"),
+        QStringLiteral("target_topic:=/piperh/calibration_board/lower_right_corner"),
+        QStringLiteral("-p"),
+        QStringLiteral("surface_normal_topic:=/piperh/calibration_board/normal"),
+        QStringLiteral("-p"),
+        QStringLiteral("arm_direction_required:=false")});
+    }
   } else {
     arguments.append({
         QStringLiteral("-p"), QStringLiteral("standoff_m:=%1").arg(
           pulse_standoff_spin_->value() / 1000.0, 0, 'f', 4),
         QStringLiteral("-p"), QStringLiteral("calibration_name:=%1").arg(
-          handeye_name_edit_->text().trimmed())});
+          selectedHandeyeCalibrationName())});
   }
   arguments.append({
       QStringLiteral("-r"), QStringLiteral("/joint_states:=%1/joint_states").arg(robot_prefix),
@@ -3054,19 +3337,19 @@ void DemoPanel::startPulseApproach()
   pulse_process_output_tail_.clear();
   process_->start();
   if (!process_->waitForStarted(2000)) {
-    setStatus(
+    report(
       QStringLiteral("把脉区预接触进程启动失败：%1").arg(process_->errorString()),
       QStringLiteral("Failed to start pulse pre-contact: %1").arg(process_->errorString()),
       true);
     active_executable_.clear();
     return;
   }
-  setStatus(
-    piper ? QStringLiteral("假体触压测试：正在规划并朝视觉目标运动，压力变化会请求停止。") :
+  report(
+    piper ? QStringLiteral("正在检查 Link6 蓝色 +Z 轴对准目标、IK 与碰撞；通过后将以 ≤5 mm/s 执行。") :
     QStringLiteral("正在规划并执行到预接触位，可随时停止。"),
     piper ? QStringLiteral(
-      "Dummy pressure-stop test: planning and moving toward the visual target; "
-      "pressure change requests a stop.") :
+      "Checking the Link6 blue +Z alignment target, IK, and collision; motion executes at ≤5 mm/s "
+      "after all checks pass.") :
     QStringLiteral("Planning and moving to the pre-contact pose; stop is available."));
   updateReadiness();
 }
@@ -3779,6 +4062,18 @@ bool DemoPanel::cameraStreamPublished() const
   }
 }
 
+void DemoPanel::signalCameraProcess(int signal)
+{
+  const qint64 process_id = camera_process_group_id_ > 0 ?
+    camera_process_group_id_ : camera_process_->processId();
+  if (process_id <= 0) {return;}
+
+  if (camera_process_uses_group_) {
+    if (::kill(-static_cast<pid_t>(process_id), signal) == 0) {return;}
+  }
+  ::kill(static_cast<pid_t>(process_id), signal);
+}
+
 void DemoPanel::toggleCamera()
 {
   if (camera_process_->state() != QProcess::NotRunning) {
@@ -3787,19 +4082,94 @@ void DemoPanel::toggleCamera()
     camera_label_->setText(localized(
       QStringLiteral("Gemini 2：正在关闭…"),
       QStringLiteral("Gemini 2: stopping…")));
-    camera_process_->terminate();
+    signalCameraProcess(SIGINT);
+    QTimer::singleShot(3000, this, [this]() {
+        if (camera_stop_requested_.load() &&
+          camera_process_->state() != QProcess::NotRunning)
+        {
+          signalCameraProcess(SIGTERM);
+        }
+      });
+    QTimer::singleShot(5000, this, [this]() {
+        if (camera_stop_requested_.load() &&
+          camera_process_->state() != QProcess::NotRunning)
+        {
+          signalCameraProcess(SIGKILL);
+        }
+      });
     return;
   }
   if (cameraNodeRunning()) {
     camera_detected_.store(true);
     camera_stream_published_.store(cameraStreamPublished());
+    refreshCameraTopics();
+    const qint64 external_group = recoverableGemini2ProcessGroup();
+    if (external_group > 0) {
+      const auto answer = QMessageBox::question(
+        this, localized(
+          QStringLiteral("确认关闭遗留摄像头"),
+          QStringLiteral("Confirm Closing Leftover Camera")),
+        localized(
+          QStringLiteral(
+            "检测到由本面板启动方式创建、但在 RViz 重启后遗留的 Gemini 2 独立进程组。"
+            "是否关闭该摄像头及其驱动子进程？"),
+          QStringLiteral(
+            "A Gemini 2 process group created in this panel's managed form was left "
+            "running after RViz restarted. Close the camera and its driver children?")),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+      if (answer != QMessageBox::Yes) {return;}
+
+      camera_stop_requested_.store(true);
+      camera_button_->setEnabled(false);
+      camera_label_->setText(localized(
+        QStringLiteral("Gemini 2：正在关闭遗留进程…"),
+        QStringLiteral("Gemini 2: stopping leftover process…")));
+      if (::kill(-static_cast<pid_t>(external_group), SIGINT) != 0) {
+        camera_stop_requested_.store(false);
+        setStatus(
+          QStringLiteral("无法向遗留摄像头进程发送关闭请求。"),
+          QStringLiteral("Could not send the stop request to the leftover camera process."),
+          true);
+        updateReadiness();
+        return;
+      }
+      QTimer::singleShot(3000, this, [external_group]() {
+          if (::kill(-static_cast<pid_t>(external_group), 0) == 0) {
+            ::kill(-static_cast<pid_t>(external_group), SIGTERM);
+          }
+        });
+      QTimer::singleShot(5000, this, [external_group]() {
+          if (::kill(-static_cast<pid_t>(external_group), 0) == 0) {
+            ::kill(-static_cast<pid_t>(external_group), SIGKILL);
+          }
+        });
+      QTimer::singleShot(5500, this, [this]() {
+          camera_stop_requested_.store(false);
+          last_camera_graph_check_ms_ = 0;
+          last_camera_image_ms_.store(0);
+          latest_camera_image_ = QImage();
+          camera_view_label_->clear();
+          camera_view_label_->setText(localized(
+            QStringLiteral("等待摄像头画面"), QStringLiteral("Waiting for camera image")));
+          camera_image_visible_ = false;
+          setStatus(
+            QStringLiteral("Gemini 2 遗留摄像头进程已关闭。"),
+            QStringLiteral("The leftover Gemini 2 camera process was stopped."));
+          updateReadiness();
+        });
+      updateReadiness();
+      return;
+    }
     setStatus(
       camera_stream_published_.load() ?
-      QStringLiteral("检测到外部启动的 Gemini 2 图像流；面板不会关闭非本面板创建的进程。") :
+      QStringLiteral(
+        "检测到外部启动的 Gemini 2 图像流，但无法确认其为独立进程组；为避免误杀，"
+        "面板不会关闭它。") :
       QStringLiteral("检测到外部 Gemini 2 驱动，但摄像头设备离线或尚无图像流。"),
       camera_stream_published_.load() ?
       QStringLiteral(
-        "An external Gemini 2 stream is running; the panel will not stop a process it does not own.") :
+        "An external Gemini 2 stream is running, but it is not a verified dedicated process "
+        "group; the panel will not stop it.") :
       QStringLiteral(
         "An external Gemini 2 driver exists, but the camera is offline or has no image stream."));
     updateReadiness();
@@ -3818,8 +4188,7 @@ void DemoPanel::toggleCamera()
 
   camera_stop_requested_.store(false);
   camera_button_->setEnabled(false);
-  camera_process_->setProgram(QStringLiteral("ros2"));
-  camera_process_->setArguments({
+  QStringList camera_arguments = {
       QStringLiteral("launch"), QStringLiteral("orbbec_camera"),
       QStringLiteral("gemini2.launch.py"),
       QStringLiteral("enable_color:=%1").arg(enable_color ? "true" : "false"),
@@ -3834,8 +4203,40 @@ void DemoPanel::toggleCamera()
       QStringLiteral("ir_qos:=SENSOR_DATA"),
       QStringLiteral("depth_registration:=%1").arg(
         enable_color && enable_depth ? "true" : "false"),
-      QStringLiteral("enable_frame_sync:=false")});
+      QStringLiteral("enable_frame_sync:=false"),
+      // Gemini 2 global timestamps can re-synchronize during a long hand-eye run
+      // and temporarily jump ahead of ROS time. Host receive time stays in the
+      // same clock domain as joint states and TF used by the calibration gates.
+      QStringLiteral("time_domain:=system")};
+  const QString ros2 = QStandardPaths::findExecutable(QStringLiteral("ros2"));
+  const QString setsid = QStandardPaths::findExecutable(QStringLiteral("setsid"));
+  camera_process_uses_group_ = !setsid.isEmpty() && !ros2.isEmpty();
+  camera_process_group_id_ = 0;
+  if (camera_process_uses_group_) {
+    // Give this launch and all of its descendants a dedicated process group.
+    // Closing the camera can then signal the whole tree, including a driver
+    // which outlives the ros2 launch wrapper.
+    camera_process_->setProgram(setsid);
+    camera_arguments.prepend(ros2);
+  } else {
+    camera_process_->setProgram(ros2.isEmpty() ? QStringLiteral("ros2") : ros2);
+  }
+  camera_process_->setArguments(camera_arguments);
   camera_process_->start();
+  const bool selected_builtin_stream_disabled =
+    (camera_image_topic_ == QStringLiteral("/camera/color/image_raw") && !enable_color) ||
+    (camera_image_topic_ == QStringLiteral("/camera/depth/image_raw") && !enable_depth) ||
+    (camera_image_topic_ == QStringLiteral("/camera/ir/image_raw") && !enable_ir);
+  if (selected_builtin_stream_disabled) {
+    subscribeCameraTopic(
+      enable_color ? QStringLiteral("/camera/color/image_raw") :
+      enable_depth ? QStringLiteral("/camera/depth/image_raw") :
+      QStringLiteral("/camera/ir/image_raw"));
+  }
+  // The driver advertises its image topics asynchronously. Refresh after it has
+  // had time to start so the selector reflects the stream actually displayed.
+  QTimer::singleShot(1500, this, [this]() {refreshCameraTopics();});
+  QTimer::singleShot(4000, this, [this]() {refreshCameraTopics();});
   QStringList streams;
   if (enable_color) {streams.append(localized(QStringLiteral("彩色"), QStringLiteral("color")));}
   if (enable_depth) {streams.append(localized(QStringLiteral("深度"), QStringLiteral("depth")));}
@@ -3898,6 +4299,7 @@ void DemoPanel::toggleHandVision()
       QStringLiteral("--depth-topic"), depth_topic,
       QStringLiteral("--camera-info-topic"), camera_info_topic,
       QStringLiteral("--num-hands"), QStringLiteral("1"),
+      QStringLiteral("--surface-normal-source"), QStringLiteral("local_skin"),
       QStringLiteral("--no-window")});
   last_hand_vision_image_ms_.store(0);
   hand_vision_process_->start();
@@ -3953,12 +4355,101 @@ void DemoPanel::selectHandVisionTopic(const QString & topic)
   }
 }
 
+void DemoPanel::refreshSavedHandeyeCalibrations()
+{
+  if (!hand_vision_calibration_combo_) {return;}
+  const QString previous = selectedHandeyeCalibrationName();
+  const QString directory = qEnvironmentVariable(
+    "EASY_HANDEYE2_CALIBRATIONS_DIRECTORY",
+    QDir::homePath() + QStringLiteral("/.ros2/easy_handeye2/calibrations"));
+  const QString prefix = active_robot_ == QStringLiteral("piperh") ?
+    QStringLiteral("piperh_") : QStringLiteral("rebotarm_");
+  const QStringList files = QDir(directory).entryList(
+    QStringList{prefix + QStringLiteral("*.calib")},
+    QDir::Files, QDir::Name | QDir::Reversed);
+
+  const QSignalBlocker blocker(hand_vision_calibration_combo_);
+  hand_vision_calibration_combo_->clear();
+  for (const QString & file : files) {
+    const QString name = QFileInfo(file).completeBaseName();
+    QString display = name;
+    const QString marker = QStringLiteral("__pass_");
+    const int marker_index = name.indexOf(marker);
+    if (marker_index >= 0) {
+      display = localized(
+        QStringLiteral("PASS %1（独立快照）").arg(name.mid(marker_index + marker.size())),
+        QStringLiteral("PASS %1 (snapshot)").arg(name.mid(marker_index + marker.size())));
+    } else if (name == QStringLiteral("piperh_camera_eye_in_hand")) {
+      display = localized(
+        QStringLiteral("当前正式标定（Piper-H Link5）"),
+        QStringLiteral("Current official calibration (Piper-H Link5)"));
+    }
+    hand_vision_calibration_combo_->addItem(display, name);
+    hand_vision_calibration_combo_->setItemData(
+      hand_vision_calibration_combo_->count() - 1,
+      QDir(directory).filePath(file), Qt::ToolTipRole);
+  }
+  QString wanted = previous;
+  if (wanted.isEmpty()) {wanted = handeye_name_edit_->text().trimmed();}
+  int index = hand_vision_calibration_combo_->findData(wanted);
+  if (index < 0) {
+    index = hand_vision_calibration_combo_->findData(handeye_name_edit_->text().trimmed());
+  }
+  hand_vision_calibration_combo_->setCurrentIndex(index >= 0 ? index : 0);
+  hand_vision_calibration_refresh_button_->setToolTip(localized(
+    QStringLiteral("已找到 %1 个当前机械臂的标定文件；目录：%2")
+      .arg(files.size()).arg(directory),
+    QStringLiteral("Found %1 calibration files for this robot; directory: %2")
+      .arg(files.size()).arg(directory)));
+}
+
+void DemoPanel::selectSavedHandeyeCalibration(int index)
+{
+  if (index < 0 || !hand_vision_calibration_combo_) {return;}
+  if (process_->state() != QProcess::NotRunning ||
+    handeye_process_->state() != QProcess::NotRunning)
+  {
+    return;
+  }
+  const QString name = hand_vision_calibration_combo_->itemData(index).toString();
+  if (name.isEmpty()) {return;}
+  if (initialized_ && !stopHandeyePublisher()) {return;}
+  last_pulse_point_ms_.store(0);
+  last_piper_pulse_point_ms_.store(0);
+  last_piper_board_corner_ms_.store(0);
+  {
+    std::lock_guard<std::mutex> lock(pulse_point_mutex_);
+    latest_pulse_point_.reset();
+    latest_piper_pulse_point_.reset();
+    latest_piper_board_corner_.reset();
+  }
+  if (initialized_ && active_robot_ == QStringLiteral("piperh") &&
+    pulse_calibration_selection_pub_)
+  {
+    std_msgs::msg::String selection;
+    selection.data = name.toStdString();
+    pulse_calibration_selection_pub_->publish(selection);
+  }
+  if (initialized_) {restartHandeyePublisher();}
+  hand_vision_status_label_->setText(localized(
+    QStringLiteral("已选择标定 %1；请等待重新获得新鲜视觉目标。").arg(name),
+    QStringLiteral("Selected calibration %1; wait for a fresh vision target.").arg(name)));
+  updateReadiness();
+}
+
 void DemoPanel::toggleHandeyeCalibration()
 {
   if (handeye_process_->state() != QProcess::NotRunning) {
     removeMoveItCalibrationDisplay();
-    handeye_process_->terminate();
-    QTimer::singleShot(1500, handeye_process_, [this]() {
+    if (handeye_adaptive_run_ && auto_handeye_cancel_client_ &&
+      auto_handeye_cancel_client_->service_is_ready())
+    {
+      auto_handeye_cancel_client_->async_send_request(std::make_shared<Trigger::Request>());
+    }
+    QTimer::singleShot(handeye_adaptive_run_ ? 2000 : 0, handeye_process_, [this]() {
+        if (handeye_process_->state() != QProcess::NotRunning) {requestHandeyeLaunchStop(handeye_process_);}
+      });
+    QTimer::singleShot(handeye_adaptive_run_ ? 4000 : 1500, handeye_process_, [this]() {
         if (handeye_process_->state() != QProcess::NotRunning) {handeye_process_->kill();}
       });
     handeye_status_label_->setText(localized(
@@ -3969,6 +4460,11 @@ void DemoPanel::toggleHandeyeCalibration()
 
   const bool eye_in_hand = handeyeEyeInHand();
   const bool moveit_backend = handeyeUsesMoveItCalibration();
+  const bool piper = active_robot_ == QStringLiteral("piperh");
+  const bool adaptive_link5 = piper && eye_in_hand && !moveit_backend;
+  handeye_adaptive_run_ = adaptive_link5;
+  handeye_run_saved_ = false;
+  handeye_failure_detail_.clear();
   if (moveit_backend && active_robot_ != QStringLiteral("rebotarm")) {
     handeye_status_label_->setText(localized(
       QStringLiteral("当前 MoveIt Calibration 模式仅接入 reBotArm；Piper-H 请先使用 easy_handeye2。"),
@@ -3983,7 +4479,7 @@ void DemoPanel::toggleHandeyeCalibration()
     QStringLiteral("eye_in_hand") : QStringLiteral("eye_on_base");
   const bool automatic_sequence_supported =
     !moveit_backend && (active_robot_ == QStringLiteral("rebotarm") ||
-    active_robot_ == QStringLiteral("piperh"));
+    active_robot_ == QStringLiteral("piperh")) && !adaptive_link5;
   const QString auto_sequence_name = automaticHandeyeSequenceName();
   const QString auto_action_prefix =
     eye_in_hand && active_robot_ == QStringLiteral("piperh") ?
@@ -4013,7 +4509,6 @@ void DemoPanel::toggleHandeyeCalibration()
   guide.setIcon(QMessageBox::Information);
   guide.setWindowTitle(localized(
     QStringLiteral("手眼标定向导"), QStringLiteral("Hand-eye calibration guide")));
-  const bool piper = active_robot_ == QStringLiteral("piperh");
   const QString target_zh = charuco_target ?
     QStringLiteral("A4 ChArUco 板（DICT_4X4_50、5 × 7、方格 35 mm、Marker 26 mm、板面 175 × 245 mm）") :
     board_target ?
@@ -4052,7 +4547,14 @@ void DemoPanel::toggleHandeyeCalibration()
   const QString mounting_details_zh = mounting_zh.arg(target_zh);
   const QString mounting_details_en = mounting_en.arg(target_en);
   guide.setText(localized(
-    moveit_backend ? QStringLiteral(
+    adaptive_link5 ? QStringLiteral(
+      "%1\n\n将启动 Piper-H Link5 零历史外参自动标定，并立即驱动真机：先以当前姿态为 Anchor，"
+      "低速执行 J1–J5 小范围 Bootstrap（J6 锁定），通过留出验证后再依次扩张 25°/35°/45°半球，"
+      "最后执行独立 Test。整个过程要求标定板始终固定、Xbox 为 LOCKED、工作区无人且人员守在急停旁。\n\n"
+      "启动前必须确认相机和支架均刚性固定在 Link5，整块板清晰居中并留有画面余量。任何规划、TF、"
+      "漂移、测试或控制异常都会停止，失败结果不会覆盖现有正式标定。相机安全包络已移除，"
+      "MoveIt 不检查相机和支架的碰撞；启动前须现场确认相机、支架、接头和线缆的运动间隙。")
+    .arg(mounting_details_zh) : moveit_backend ? QStringLiteral(
       "%1\n\n将打开 MoveIt Calibration 插件并预置本项目的 ChArUco 参数。"
       "在插件中确认 Target 图像、Context 的 4 个 frame 和 Planning Group=arm，"
       "然后在 Calibrate 页手动采集至少 12 个覆盖多轴旋转的姿态并保存结果。\n\n"
@@ -4069,7 +4571,15 @@ void DemoPanel::toggleHandeyeCalibration()
       "至少 12 个覆盖多轴旋转的安全姿态，并在 easy_handeye2 中手动采样、Compute 和 Save。\n\n"
       "启动标定不会驱动机械臂；每个姿态都必须单独规划、碰撞检查并由现场人员确认。")
     .arg(mounting_details_zh),
-    moveit_backend ? QStringLiteral(
+    adaptive_link5 ? QStringLiteral(
+      "%1\n\nThis starts zero-history Piper-H Link5 calibration and moves real hardware immediately. "
+      "The current pose becomes the anchor; low-speed J1-J5 bootstrap motions run with J6 locked, "
+      "followed by 25/35/45-degree board-centred caps and an independent final test. Keep the board "
+      "fixed, Xbox LOCKED, the workspace clear, and an operator at the emergency stop. Any planning, "
+      "TF, drift, test, or control fault stops the run and never overwrites the current calibration. "
+      "The camera safety envelope has been removed. MoveIt does not check camera or bracket collisions; "
+      "verify camera, bracket, connector, and cable clearance on site before starting.")
+    .arg(mounting_details_en) : moveit_backend ? QStringLiteral(
       "%1\n\nThe MoveIt Calibration plugin will open with this project's ChArUco parameters. "
       "Verify the target image, all four Context frames, and Planning Group=arm, then collect at "
       "least 12 multi-axis poses manually on the Calibrate tab and save the result.\n\n"
@@ -4093,10 +4603,7 @@ void DemoPanel::toggleHandeyeCalibration()
   guide.exec();
   if (guide.clickedButton() != start) {return;}
 
-  if (handeye_publish_process_->state() != QProcess::NotRunning) {
-    handeye_publish_process_->terminate();
-    handeye_publish_process_->waitForFinished(1000);
-  }
+  if (!stopHandeyePublisher()) {return;}
   QString camera_info_topic = QStringLiteral("/camera/color/camera_info");
   const QString color_marker = QStringLiteral("/color/");
   const int color_index = hand_vision_color_topic_.indexOf(color_marker);
@@ -4114,6 +4621,10 @@ void DemoPanel::toggleHandeyeCalibration()
       QStringLiteral("calibration_type:=%1").arg(calibration_type),
       QStringLiteral("calibration_backend:=%1").arg(
         moveit_backend ? QStringLiteral("moveit_calibration") : QStringLiteral("easy_handeye2")),
+      QStringLiteral("automation_mode:=%1").arg(
+        adaptive_link5 ? QStringLiteral("piperh_link5_adaptive") : QStringLiteral("sequence")),
+      QStringLiteral("calibration_workspace_mode:=%1").arg(
+        handeye_workspace_combo_->currentData().toString()),
       QStringLiteral("robot_base_frame:=%1").arg(fields[1]),
       QStringLiteral("robot_effector_frame:=%1").arg(fields[2]),
       QStringLiteral("tracking_base_frame:=%1").arg(fields[3]),
@@ -4132,41 +4643,51 @@ void DemoPanel::toggleHandeyeCalibration()
         automatic_sequence_supported ? QStringLiteral("true") : QStringLiteral("false")),
       QStringLiteral("teach_status_topic:=%1/teach/status").arg(handeye_robot_prefix),
       QStringLiteral("joint_state_topic:=%1/joint_states").arg(handeye_robot_prefix),
+      QStringLiteral("xbox_armed_topic:=%1/xbox/armed").arg(handeye_robot_prefix),
+      QStringLiteral("moveit_namespace:=%1").arg(handeye_robot_prefix),
+      QStringLiteral("trajectory_action:=%1/arm_controller/follow_joint_trajectory").arg(
+        handeye_robot_prefix),
       QStringLiteral("teach_cancel_service:=%1/teach/cancel").arg(handeye_robot_prefix),
       QStringLiteral("color_topic:=%1").arg(hand_vision_color_topic_),
       QStringLiteral("camera_info_topic:=%1").arg(camera_info_topic)});
   handeye_process_->start();
   if (!handeye_process_->waitForStarted(1500)) {
+    handeye_adaptive_run_ = false;
     handeye_status_label_->setText(localized(
       QStringLiteral("手眼标定启动失败：%1").arg(handeye_process_->errorString()),
       QStringLiteral("Could not start hand-eye calibration: %1").arg(handeye_process_->errorString())));
     handeye_backend_combo_->setEnabled(true);
     handeye_mode_combo_->setEnabled(true);
+    handeye_workspace_combo_->setEnabled(true);
     handeye_target_combo_->setEnabled(!moveit_backend);
     return;
   }
   if (moveit_backend && !showMoveItCalibrationDisplay(fields, eye_in_hand)) {
-    handeye_process_->terminate();
+    requestHandeyeLaunchStop(handeye_process_);
     handeye_process_->waitForFinished(1000);
     handeye_status_label_->setText(localized(
       QStringLiteral("无法加载 MoveIt Calibration RViz 插件；请确认 moveit_calibration_gui 已构建并重新 source。"),
       QStringLiteral("Could not load the MoveIt Calibration RViz plugin; build moveit_calibration_gui and source the workspace.")));
     handeye_backend_combo_->setEnabled(true);
     handeye_mode_combo_->setEnabled(true);
+    handeye_workspace_combo_->setEnabled(true);
     return;
   }
   handeye_backend_combo_->setEnabled(false);
   handeye_mode_combo_->setEnabled(false);
+  handeye_workspace_combo_->setEnabled(false);
   handeye_target_combo_->setEnabled(false);
   handeye_status_label_->setText(localized(
-    (moveit_backend ?
+    (adaptive_link5 ?
+    QStringLiteral("Link5 自举自动标定已启动；真机将低速运动，请守在急停旁。") : moveit_backend ?
     QStringLiteral("MoveIt Calibration 已打开；请在其三个页签中确认目标、frame 并手动采样。") :
     automatic_sequence_supported ?
     QStringLiteral("%1模式已启动；请使用匹配的动作组“%2”或手动采样。") :
     QStringLiteral("%1模式已启动；请用 Piper-H MoveIt 规划安全姿态并手动采样。"))
     .arg(eye_in_hand ? QStringLiteral("眼在手上") : QStringLiteral("眼在手外"))
     .arg(auto_sequence_name),
-    (moveit_backend ?
+    (adaptive_link5 ?
+    QStringLiteral("Link5 bootstrap calibration started; real hardware will move slowly. Stay at the emergency stop.") : moveit_backend ?
     QStringLiteral("MoveIt Calibration opened; verify target and frames, then sample manually in its three tabs.") :
     automatic_sequence_supported ?
     QStringLiteral("%1 calibration started; use matching sequence “%2” or sample manually.") :
@@ -4269,15 +4790,40 @@ QString DemoPanel::automaticHandeyeSequenceName() const
          kAutoHandeyeEyeOnBaseSequenceName;
 }
 
-QString DemoPanel::handeyeCalibrationFile() const
+QString DemoPanel::selectedHandeyeCalibrationName() const
 {
-  if (!handeye_name_edit_) {return QString();}
-  const QString name = handeye_name_edit_->text().trimmed();
+  if (hand_vision_calibration_combo_ && hand_vision_calibration_combo_->currentIndex() >= 0) {
+    const QString selected = hand_vision_calibration_combo_->currentData().toString().trimmed();
+    if (!selected.isEmpty()) {return selected;}
+  }
+  return handeye_name_edit_ ? handeye_name_edit_->text().trimmed() : QString();
+}
+
+QString DemoPanel::handeyeCalibrationFileForName(const QString & name) const
+{
   if (name.isEmpty() || name.contains('/') || name.contains(QStringLiteral(".."))) {
     return QString();
   }
   return qEnvironmentVariable("EASY_HANDEYE2_CALIBRATIONS_DIRECTORY", QDir::homePath() + QStringLiteral("/.ros2/easy_handeye2/calibrations")) + QStringLiteral("/") +
     name + QStringLiteral(".calib");
+}
+
+QString DemoPanel::handeyeCalibrationFile() const
+{
+  return handeyeCalibrationFileForName(selectedHandeyeCalibrationName());
+}
+
+bool DemoPanel::stopHandeyePublisher()
+{
+  if (handeye_publish_process_->state() == QProcess::NotRunning) {return true;}
+  handeye_publish_process_->terminate();
+  if (handeye_publish_process_->waitForFinished(1500)) {return true;}
+  handeye_publish_process_->kill();
+  if (handeye_publish_process_->waitForFinished(1000)) {return true;}
+  handeye_status_label_->setText(localized(
+    QStringLiteral("无法确认旧标定 TF 发布节点已停止；暂不启动新标定。"),
+    QStringLiteral("Could not confirm the old calibration TF publisher stopped; calibration was not started.")));
+  return false;
 }
 
 void DemoPanel::restartHandeyePublisher()
@@ -4291,11 +4837,20 @@ void DemoPanel::restartHandeyePublisher()
   if (handeye_publish_process_->state() != QProcess::NotRunning) {
     return;
   }
-  handeye_publish_process_->setProgram(QStringLiteral("ros2"));
+  // Own the publisher itself, not a launch wrapper whose children can survive
+  // QProcess termination and keep a historical camera TF alive.
+  QString publisher;
+  try {
+    publisher = QString::fromStdString(ament_index_cpp::get_package_prefix("easy_handeye2")) +
+      QStringLiteral("/lib/easy_handeye2/handeye_publisher");
+  } catch (const std::exception & error) {
+    handeye_status_label_->setText(QString::fromLocal8Bit(error.what()));
+    return;
+  }
+  handeye_publish_process_->setProgram(publisher);
   handeye_publish_process_->setArguments({
-      QStringLiteral("launch"), QStringLiteral("easy_handeye2"),
-      QStringLiteral("publish.launch.py"),
-      QStringLiteral("name:=%1").arg(handeye_name_edit_->text().trimmed())});
+      QStringLiteral("--ros-args"), QStringLiteral("-p"),
+      QStringLiteral("name:=%1").arg(selectedHandeyeCalibrationName())});
   handeye_publish_process_->start();
   if (handeye_publish_process_->waitForStarted(1500)) {
     handeye_status_label_->setText(localized(
@@ -6247,6 +6802,8 @@ void DemoPanel::updateReadiness()
     last_camera_graph_check_ms_ = now;
     camera_detected_.store(cameraNodeRunning());
     camera_stream_published_.store(cameraStreamPublished());
+    recoverable_camera_process_group_id_ = camera_detected_.load() ?
+      recoverableGemini2ProcessGroup() : 0;
   }
   const auto last_hand_image = last_hand_vision_image_ms_.load();
   if (hand_vision_process_->state() != QProcess::NotRunning &&
@@ -6259,8 +6816,26 @@ void DemoPanel::updateReadiness()
         "Check the color/depth streams.")));
     hand_vision_status_label_->setStyleSheet(QStringLiteral("color: #c43b32;"));
   }
+  constexpr std::int64_t validity_request_timeout_ms = 1500;
+  bool validity_request_pending = false;
+  {
+    std::lock_guard<std::mutex> lock(validity_state_->mutex);
+    if (validity_state_->pending && validity_state_->request_ms > 0 &&
+      now - validity_state_->request_ms >= validity_request_timeout_ms)
+    {
+      // A ROS service response can be lost while MoveIt/RViz is starting or
+      // while DDS endpoints are being rebound.  Do not leave the safety UI
+      // permanently wedged in pending: invalidate the late callback and retry.
+      ++validity_state_->generation;
+      validity_state_->pending = false;
+      validity_state_->valid = false;
+      validity_state_->request_ms = 0;
+      validity_state_->response_ms = 0;
+    }
+    validity_request_pending = validity_state_->pending;
+  }
   if (fresh && validity_client_ && validity_client_->service_is_ready() &&
-    !validity_state_->pending.load() && now - last_validity_request_ms_ >= 500)
+    !validity_request_pending && now - last_validity_request_ms_ >= 500)
   {
     sensor_msgs::msg::JointState::SharedPtr joint_state;
     {
@@ -6272,27 +6847,57 @@ void DemoPanel::updateReadiness()
       request->group_name = "arm";
       request->robot_state.joint_state = *joint_state;
       last_validity_request_ms_ = now;
-      validity_state_->pending.store(true);
       const auto state = validity_state_;
-      validity_client_->async_send_request(
-        request,
-        [state](rclcpp::Client<GetStateValidity>::SharedFuture future) {
-          try {
-            const auto response = future.get();
-            state->valid.store(response && response->valid);
-            state->response_ms.store(steadyMilliseconds());
-          } catch (const std::exception &) {
-            state->valid.store(false);
-            state->response_ms.store(0);
-          }
-          state->pending.store(false);
-        });
+      std::uint64_t request_generation = 0;
+      {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        request_generation = ++state->generation;
+        state->pending = true;
+        state->valid = false;
+        state->request_ms = now;
+        state->response_ms = 0;
+      }
+      try {
+        validity_client_->async_send_request(
+          request,
+          [state, request_generation](
+            rclcpp::Client<GetStateValidity>::SharedFuture future)
+          {
+            bool valid = false;
+            try {
+              const auto response = future.get();
+              valid = response && response->valid;
+            } catch (const std::exception &) {
+              valid = false;
+            }
+            std::lock_guard<std::mutex> lock(state->mutex);
+            if (state->generation != request_generation) {
+              return;
+            }
+            state->valid = valid;
+            state->response_ms = valid ? steadyMilliseconds() : 0;
+            state->request_ms = 0;
+            state->pending = false;
+          });
+      } catch (const std::exception &) {
+        std::lock_guard<std::mutex> lock(state->mutex);
+        if (state->generation == request_generation) {
+          state->valid = false;
+          state->request_ms = 0;
+          state->response_ms = 0;
+          state->pending = false;
+        }
+      }
     }
   }
   const bool valid = stateValidityFresh();
   const bool hardware_allowed = teach_hardware_allowed_.load();
   const bool offline_preview = teach_offline_preview_.load();
   bool running = process_->state() != QProcess::NotRunning;
+  const bool calibration_selectable = !running &&
+    handeye_process_->state() == QProcess::NotRunning;
+  hand_vision_calibration_combo_->setEnabled(calibration_selectable);
+  hand_vision_calibration_refresh_button_->setEnabled(calibration_selectable);
   if (fresh && !connection_ready_announced_) {
     connection_ready_announced_ = true;
     setStatus(
@@ -6374,6 +6979,15 @@ void DemoPanel::updateReadiness()
   // like the application had stopped responding. startPulseApproach() repeats
   // every safety check and reports the concrete blocker without starting motion.
   pulse_approach_button_->setEnabled(!running);
+  const auto board_corner_age_ms = last_piper_board_corner_ms_.load() > 0 ?
+    now - last_piper_board_corner_ms_.load() : now;
+  const bool board_corner_fresh = board_corner_age_ms < 1500;
+  board_corner_approach_button_->setEnabled(!running);
+  board_corner_approach_button_->setToolTip(board_corner_fresh ? localized(
+    QStringLiteral("已识别画面右下板角点；点击后仍会检查反馈、碰撞、Xbox LOCKED 和目标新鲜度。"),
+    QStringLiteral("Lower-right board corner detected; feedback, collision, Xbox LOCKED and freshness are rechecked.")) : localized(
+    QStringLiteral("尚未识别新鲜的板角点；请让整个标定板清晰进入画面。"),
+    QStringLiteral("No fresh board corner; keep the whole calibration board clearly visible.")));
   QStringList pulse_blockers_zh;
   QStringList pulse_blockers_en;
   if (!fresh) {
@@ -6409,13 +7023,17 @@ void DemoPanel::updateReadiness()
     pulse_blockers_en.append(QStringLiteral("another operation is running"));
   }
   pulse_approach_button_->setToolTip(pulse_ready ? localized(
-    QStringLiteral("条件满足；再次确认仅在非人体假体上向视觉目标运动，压力异常请求停止。"),
+    active_robot_ == QStringLiteral("piperh") ?
+    QStringLiteral("条件满足；确认后 Link6 将移到圆圈所在皮肤面的法向上方 %1 mm，蓝色 +Z 轴指向皮肤。")
+      .arg(piper_standoff_spin_->value(), 0, 'f', 0) :
+    QStringLiteral("条件满足；确认后前往视觉目标的预接触位。"),
     QStringLiteral(
-      "Ready; confirm dummy-only motion toward the visual target with pressure cancellation.")) : localized(
+      "Ready; confirm collision-checked motion to the visual target standoff.")) : localized(
     QStringLiteral("当前不可用：%1").arg(pulse_blockers_zh.join(QStringLiteral("；"))),
     QStringLiteral("Currently unavailable: %1").arg(
       pulse_blockers_en.join(QStringLiteral("; ")))));
   pulse_standoff_spin_->setEnabled(!running);
+  piper_standoff_spin_->setEnabled(!running);
   if (active_robot_ == QStringLiteral("piperh") && pulse_age_ms >= 1500) {
     pulse_region_label_->setText(localized(
       QStringLiteral("Piper-H 目标已失效：Target age: %1 ms；需重新跟踪稳定目标")
@@ -6486,6 +7104,8 @@ void DemoPanel::updateReadiness()
 
   const bool camera_owned = camera_process_->state() != QProcess::NotRunning;
   const bool camera_external = camera_detected_.load() && !camera_owned;
+  const bool camera_external_recoverable =
+    camera_external && recoverable_camera_process_group_id_ > 0;
   const bool camera_stream_published = camera_stream_published_.load();
   const bool camera_image_fresh = now - last_camera_image_ms_.load() < 1000;
   const bool camera_settings_editable = !camera_owned && !camera_external &&
@@ -6529,12 +7149,15 @@ void DemoPanel::updateReadiness()
   }
   camera_button_->setText(camera_owned ? localized(
     QStringLiteral("关闭摄像头"), QStringLiteral("Close Camera")) : camera_external ? localized(
+    camera_external_recoverable ? QStringLiteral("关闭摄像头（恢复控制）") :
     camera_stream_published ? QStringLiteral("摄像头已打开（外部）") :
     QStringLiteral("摄像头设备离线（外部驱动）"),
+    camera_external_recoverable ? QStringLiteral("Close Camera (Reclaim Control)") :
     camera_stream_published ? QStringLiteral("Camera Open (External)") :
     QStringLiteral("Camera Offline (External Driver)")) : localized(
     QStringLiteral("打开摄像头"), QStringLiteral("Open Camera")));
-  camera_button_->setEnabled(!camera_stop_requested_.load() && !camera_external);
+  camera_button_->setEnabled(
+    !camera_stop_requested_.load() && (!camera_external || camera_external_recoverable));
   camera_tab_button_->setText(camera_button_->text());
   camera_tab_button_->setEnabled(camera_button_->isEnabled());
   if (camera_image_fresh) {
@@ -6546,7 +7169,12 @@ void DemoPanel::updateReadiness()
       QStringLiteral("驱动节点已存在，但设备离线；系统未检测到 Gemini 2 USB 设备。"),
       QStringLiteral("The driver node exists, but the device is offline; no Gemini 2 USB device was detected.")));
   } else if (camera_owned || camera_external) {
-    camera_tab_status_label_->setText(localized(
+    const auto last_image = last_camera_image_ms_.load();
+    camera_tab_status_label_->setText(last_image > 0 ? localized(
+      QStringLiteral("%1 已暂停更新 %2 ms；保留最后一帧，等待数据恢复。")
+      .arg(camera_image_topic_).arg(now - last_image),
+      QStringLiteral("%1 has not updated for %2 ms; retaining the last frame while waiting.")
+      .arg(camera_image_topic_).arg(now - last_image)) : localized(
       QStringLiteral("正在等待 %1…").arg(camera_image_topic_),
       QStringLiteral("Waiting for %1…").arg(camera_image_topic_)));
   } else {
@@ -6554,13 +7182,9 @@ void DemoPanel::updateReadiness()
       QStringLiteral("摄像头未打开。点击下方按钮启动 Gemini 2。"),
       QStringLiteral("Camera is off. Use the button below to start Gemini 2.")));
   }
-  if (!camera_image_fresh && camera_image_visible_) {
-    latest_camera_image_ = QImage();
-    camera_view_label_->clear();
-    camera_view_label_->setText(localized(
-      QStringLiteral("等待摄像头画面"), QStringLiteral("Waiting for camera image")));
-    camera_image_visible_ = false;
-  }
+  // A busy RViz executor can delay a best-effort image callback for more than
+  // one second even while the camera is healthy. Keep the last valid frame so
+  // a transient scheduling gap does not look like a complete stream loss.
   const bool has_builtin_shape =
     teach_shape_combo_->currentData().toString() != QStringLiteral("freehand");
   const QString selected_drawing = teach_shape_combo_->currentData().toString();
@@ -6777,13 +7401,20 @@ void DemoPanel::readProcessOutput()
   if (combined_output.contains(QStringLiteral("result=DUMMY_PRESSURE_STOPPED"))) {
     pulse_dummy_pressure_stopped_ = true;
   }
-  pulse_process_output_tail_ = combined_output.right(256);
+  pulse_process_output_tail_ = combined_output.right(4096);
   const QString line = lastNonEmptyLine(output);
   if (!line.isEmpty()) {
-    setStatus(
-      QStringLiteral("%1：%2").arg(operationTitle(active_executable_, true), line),
-      QStringLiteral("%1: %2").arg(operationTitle(active_executable_, false), line),
-      line.contains(QStringLiteral("ERROR"), Qt::CaseInsensitive));
+    const bool pulse_action = active_executable_ == QStringLiteral("piper_pulse_align");
+    const QString zh = QStringLiteral("%1：%2").arg(
+      operationTitle(active_executable_, true), line);
+    const QString en = QStringLiteral("%1: %2").arg(
+      operationTitle(active_executable_, false), line);
+    const bool error = line.contains(QStringLiteral("ERROR"), Qt::CaseInsensitive);
+    if (pulse_action) {
+      setPulseActionStatus(zh, en, error);
+    } else {
+      setStatus(zh, en, error);
+    }
   }
 }
 
@@ -6794,26 +7425,50 @@ void DemoPanel::processFinished(int exit_code)
   if (combined_output.contains(QStringLiteral("result=DUMMY_PRESSURE_STOPPED"))) {
     pulse_dummy_pressure_stopped_ = true;
   }
-  pulse_process_output_tail_ = combined_output.right(256);
+  pulse_process_output_tail_ = combined_output.right(4096);
   const QString executable = active_executable_;
   active_executable_.clear();
   if (exit_code == 0 && executable == QStringLiteral("piper_pulse_align")) {
-    setStatus(pulse_dummy_pressure_stopped_ ?
-      QStringLiteral("假体测试：压力变化已触发取消，执行动作已返回。") :
-      QStringLiteral("假体测试：已到达视觉目标；未检测到压力停止触发。"),
-      pulse_dummy_pressure_stopped_ ?
-      QStringLiteral("Dummy test: pressure change cancelled the trajectory and the action returned.") :
-      QStringLiteral("Dummy test: visual target reached without a pressure-stop trigger."));
+    setPulseActionStatus(
+      QStringLiteral("Link6 已到目标平面法向上方 %1 mm，蓝色 +Z 轴已垂直指向目标。")
+        .arg(active_piper_standoff_mm_, 0, 'f', 0),
+      QStringLiteral("Link6 is %1 mm outward along the target-plane normal; blue +Z points toward the target.")
+        .arg(active_piper_standoff_mm_, 0, 'f', 0));
   } else if (exit_code == 0) {
     setStatus(
       QStringLiteral("%1已完成。").arg(operationTitle(executable, true)),
       QStringLiteral("%1 completed.").arg(operationTitle(executable, false)));
   } else {
-    setStatus(
-      QStringLiteral("%1已停止或失败（退出码 %2）。")
-      .arg(operationTitle(executable, true)).arg(exit_code),
-      QStringLiteral("%1 stopped or failed (exit code %2).")
-      .arg(operationTitle(executable, false)).arg(exit_code), true);
+    const QString detail = lastUsefulProcessLine(combined_output);
+    const QString primary_reason = summaryField(combined_output, QStringLiteral("primary_reason"));
+    const QString motion_sent = summaryField(combined_output, QStringLiteral("motion_sent"));
+    const bool structured_pulse_failure =
+      executable == QStringLiteral("piper_pulse_align") && !primary_reason.isEmpty();
+    const QString zh_detail = structured_pulse_failure ?
+      QStringLiteral("：阻断原因 %1；%2").arg(
+        primary_reason,
+        motion_sent == QStringLiteral("NO") ?
+        QStringLiteral("安全检查阶段停止，未发送运动轨迹") :
+        QStringLiteral("运动已启动后被安全监控停止")) :
+      detail.isEmpty() ? QStringLiteral("。") : QStringLiteral("：%1").arg(detail);
+    const QString en_detail = structured_pulse_failure ?
+      QStringLiteral(": blocker %1; %2").arg(
+        primary_reason,
+        motion_sent == QStringLiteral("NO") ?
+        QStringLiteral("stopped during safety checks; no trajectory was sent") :
+        QStringLiteral("stopped by safety monitoring after motion began")) :
+      detail.isEmpty() ? QStringLiteral(".") : QStringLiteral(": %1").arg(detail);
+    const QString zh = QStringLiteral("%1已停止或失败（退出码 %2）%3")
+      .arg(operationTitle(executable, true)).arg(exit_code)
+      .arg(zh_detail);
+    const QString en = QStringLiteral("%1 stopped or failed (exit code %2)%3")
+      .arg(operationTitle(executable, false)).arg(exit_code)
+      .arg(en_detail);
+    if (executable == QStringLiteral("piper_pulse_align")) {
+      setPulseActionStatus(zh, en, true);
+    } else {
+      setStatus(zh, en, true);
+    }
   }
   updateReadiness();
 }
@@ -6826,6 +7481,14 @@ void DemoPanel::setStatus(const QString & zh, const QString & en, bool error)
   status_label_->setText(localized(status_zh_, status_en_));
   status_label_->setStyleSheet(
     status_error_ ? QStringLiteral("color: #c43b32;") : QString());
+}
+
+void DemoPanel::setPulseActionStatus(const QString & zh, const QString & en, bool error)
+{
+  pulse_action_status_label_->setText(localized(zh, en));
+  pulse_action_status_label_->setStyleSheet(
+    error ? QStringLiteral("color: #c43b32;") : QStringLiteral("color: #257a32;"));
+  setStatus(zh, en, error);
 }
 
 void DemoPanel::showCameraImage(const QImage & image)
@@ -6858,9 +7521,15 @@ void DemoPanel::showHandVisionImage(const QImage & image)
 void DemoPanel::showHandVisionLargeView()
 {
   if (!hand_vision_large_dialog_) {
-    hand_vision_large_dialog_ = new QDialog(this, Qt::Window);
+    hand_vision_large_dialog_ = new QDialog(
+      this,
+      Qt::Window | Qt::WindowTitleHint | Qt::WindowSystemMenuHint |
+      Qt::WindowMinMaxButtonsHint | Qt::WindowCloseButtonHint |
+      Qt::WindowStaysOnTopHint);
     hand_vision_large_dialog_->setObjectName(QStringLiteral("hand_vision_large_dialog"));
     hand_vision_large_dialog_->setModal(false);
+    hand_vision_large_dialog_->setAttribute(Qt::WA_QuitOnClose, false);
+    hand_vision_large_dialog_->resize(1280, 720);
     auto * layout = new QVBoxLayout(hand_vision_large_dialog_);
     layout->setContentsMargins(0, 0, 0, 0);
     hand_vision_large_label_ = new QLabel(hand_vision_large_dialog_);
@@ -6882,10 +7551,23 @@ void DemoPanel::showHandVisionLargeView()
     hand_vision_large_label_->setPixmap(QPixmap::fromImage(latest_hand_vision_image_).scaled(
         hand_vision_large_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
   }
-  hand_vision_large_dialog_->showMaximized();
+  // A maximized transient window can remain minimized or behind RViz on some
+  // X11 window managers.  Restore it explicitly before requesting maximized
+  // state, then repeat the activation after the window-system event is handled.
+  hand_vision_large_dialog_->setWindowState(
+    (hand_vision_large_dialog_->windowState() & ~Qt::WindowMinimized) |
+    Qt::WindowMaximized);
+  hand_vision_large_dialog_->show();
   hand_vision_large_dialog_->raise();
   hand_vision_large_dialog_->activateWindow();
   QTimer::singleShot(0, hand_vision_large_dialog_, [this]() {
+    if (!hand_vision_large_dialog_) {return;}
+    hand_vision_large_dialog_->setWindowState(
+      (hand_vision_large_dialog_->windowState() & ~Qt::WindowMinimized) |
+      Qt::WindowMaximized);
+    hand_vision_large_dialog_->show();
+    hand_vision_large_dialog_->raise();
+    hand_vision_large_dialog_->activateWindow();
     if (!latest_hand_vision_image_.isNull() && hand_vision_large_label_) {
       hand_vision_large_label_->setPixmap(QPixmap::fromImage(latest_hand_vision_image_).scaled(
           hand_vision_large_label_->size(), Qt::KeepAspectRatio, Qt::SmoothTransformation));
@@ -6897,31 +7579,61 @@ void DemoPanel::subscribeCameraTopic(const QString & topic)
 {
   if (!node_ || topic.trimmed().isEmpty()) {return;}
   camera_image_topic_ = topic.trimmed();
-  last_camera_frame_ms_.store(0);
+  const auto generation = camera_subscription_generation_.fetch_add(1) + 1;
+  last_camera_render_ms_.store(0);
+  camera_render_pending_.store(false);
+  {
+    std::lock_guard<std::mutex> lock(camera_rate_mutex_);
+    camera_frame_times_ms_.clear();
+  }
   camera_image_sub_.reset();
+  rclcpp::SensorDataQoS camera_qos;
+  camera_qos.keep_last(1);
   camera_image_sub_ = node_->create_subscription<sensor_msgs::msg::Image>(
-    camera_image_topic_.toStdString(), rclcpp::SensorDataQoS(),
-    [this](const sensor_msgs::msg::Image::SharedPtr message) {
+    camera_image_topic_.toStdString(), camera_qos,
+    [this, generation](const sensor_msgs::msg::Image::SharedPtr message) {
+      if (generation != camera_subscription_generation_.load()) {return;}
       const auto now = steadyMilliseconds();
       last_camera_image_ms_.store(now);
-      const auto previous_frame = last_camera_frame_ms_.exchange(now);
+      double receive_fps = 0.0;
+      {
+        std::lock_guard<std::mutex> lock(camera_rate_mutex_);
+        camera_frame_times_ms_.push_back(now);
+        const auto window_start = now - 2000;
+        while (camera_frame_times_ms_.size() > 2 &&
+          camera_frame_times_ms_.front() < window_start)
+        {
+          camera_frame_times_ms_.pop_front();
+        }
+        if (camera_frame_times_ms_.size() > 1 &&
+          camera_frame_times_ms_.back() > camera_frame_times_ms_.front())
+        {
+          receive_fps = 1000.0 * static_cast<double>(camera_frame_times_ms_.size() - 1) /
+            static_cast<double>(
+            camera_frame_times_ms_.back() - camera_frame_times_ms_.front());
+        }
+      }
       auto previous_render = last_camera_render_ms_.load();
-      if (now - previous_render < 66 ||
-        !last_camera_render_ms_.compare_exchange_strong(previous_render, now)) {return;}
+      if (now - previous_render < 66) {return;}
+      if (camera_render_pending_.exchange(true)) {return;}
+      if (!last_camera_render_ms_.compare_exchange_strong(previous_render, now)) {
+        camera_render_pending_.store(false);
+        return;
+      }
       const QImage image = imageMessageToQImage(*message);
       const QString encoding = QString::fromStdString(message->encoding);
       const int width = static_cast<int>(message->width);
       const int height = static_cast<int>(message->height);
-      const double fps = previous_frame > 0 && now > previous_frame ?
-        1000.0 / static_cast<double>(now - previous_frame) : 0.0;
       QPointer<DemoPanel> self(this);
-      QMetaObject::invokeMethod(this, [self, image, encoding, width, height, fps]() {
+      const bool queued = QMetaObject::invokeMethod(this, [self, image, encoding, width, height, receive_fps, generation]() {
         if (!self) {return;}
+        self->camera_render_pending_.store(false);
+        if (generation != self->camera_subscription_generation_.load()) {return;}
         self->camera_stream_info_label_->setText(self->localized(
-          QStringLiteral("当前图像：%1 × %2 · 编码 %3 · 约 %4 FPS")
-          .arg(width).arg(height).arg(encoding).arg(fps, 0, 'f', 1),
-          QStringLiteral("Current image: %1 x %2 · %3 · about %4 FPS")
-          .arg(width).arg(height).arg(encoding).arg(fps, 0, 'f', 1)));
+          QStringLiteral("当前图像：%1 × %2 · 编码 %3 · 面板接收约 %4 FPS（预览 ≤15 FPS）")
+          .arg(width).arg(height).arg(encoding).arg(receive_fps, 0, 'f', 1),
+          QStringLiteral("Current image: %1 x %2 · %3 · panel receives about %4 FPS (preview <=15 FPS)")
+          .arg(width).arg(height).arg(encoding).arg(receive_fps, 0, 'f', 1)));
         if (image.isNull()) {
           self->camera_tab_status_label_->setText(self->localized(
             QStringLiteral("收到图像，但暂不支持编码：%1").arg(encoding),
@@ -6930,6 +7642,7 @@ void DemoPanel::subscribeCameraTopic(const QString & topic)
         }
         self->showCameraImage(image);
       }, Qt::QueuedConnection);
+      if (!queued) {camera_render_pending_.store(false);}
     });
   if (camera_topic_combo_) {
     const QSignalBlocker blocker(camera_topic_combo_);
@@ -6967,10 +7680,10 @@ void DemoPanel::refreshCameraTopics()
 void DemoPanel::selectCameraTopic(const QString & topic)
 {
   if (initialized_ && !topic.trimmed().isEmpty() && topic != camera_image_topic_) {
-    subscribeCameraTopic(topic);
     last_camera_image_ms_.store(0);
     camera_image_visible_ = false;
     camera_view_label_->clear();
+    subscribeCameraTopic(topic);
   }
 }
 
@@ -6998,10 +7711,10 @@ void DemoPanel::retranslateUi()
   if (auto * hint = findChild<QLabel *>(QStringLiteral("hand_vision_hint"))) {
     hint->setText(localized(
       piper ? QStringLiteral(
-        "仅限非人体假体测试：识别稳定目标后，保持 J6 姿态向目标运动；压力异常请求取消，非力控制。") :
+        "识别稳定目标和局部皮肤法向后，将无工具 Link6 移到所选法向距离，并使蓝色 +Z 轴指向皮肤；不接触目标。") :
       QStringLiteral("识别 MediaPipe 手部关键点、对齐深度和桡侧腕部近似把脉区域。绿色 PULSE READY 后可经确认前往预接触位；视觉不会命令探头接触人体。"),
       piper ? QStringLiteral(
-        "Non-human dummy only: after stable target detection, move toward it with J6 fixed; pressure requests cancellation, not force control.") :
+        "After stable target and local skin-normal detection, move bare Link6 by the selected normal standoff and point blue +Z toward the skin; no contact.") :
       QStringLiteral("Detects MediaPipe landmarks, registered depth, and an approximate radial-wrist pulse region. After green PULSE READY, confirmed motion may go only to pre-contact; vision never commands human contact.")));
   }
   hand_vision_topic_label_->setText(localized(
@@ -7011,6 +7724,10 @@ void DemoPanel::retranslateUi()
   hand_vision_topic_refresh_button_->setToolTip(localized(
     QStringLiteral("检索可用的 sensor_msgs/Image 话题。切换后需重启手部视觉。"),
     QStringLiteral("Discover sensor_msgs/Image topics. Restart hand vision after switching.")));
+  hand_vision_calibration_label_->setText(localized(
+    QStringLiteral("使用手眼标定："), QStringLiteral("Hand-eye calibration:")));
+  hand_vision_calibration_refresh_button_->setText(localized(
+    QStringLiteral("刷新"), QStringLiteral("Refresh")));
   hand_vision_status_label_->setText(hand_vision_process_->state() == QProcess::NotRunning ?
     localized(QStringLiteral("手部视觉未运行。"), QStringLiteral("Hand vision is not running.")) :
     localized(QStringLiteral("手部视觉运行中。"), QStringLiteral("Hand vision is running.")));
@@ -7040,21 +7757,37 @@ void DemoPanel::retranslateUi()
       QStringLiteral("预接触安全距离："), QStringLiteral("Pre-contact standoff:")));
   }
   pulse_standoff_spin_->setVisible(!piper);
+  piper_standoff_label_->setVisible(piper);
+  piper_standoff_spin_->setVisible(piper);
+  piper_standoff_label_->setText(localized(
+    QStringLiteral("Link6 法向悬停距离："), QStringLiteral("Link6 normal standoff:")));
+  const double piper_standoff_mm = piper_standoff_spin_->value();
   pulse_approach_button_->setText(localized(
-    piper ? QStringLiteral("假体测试：前往视觉目标（压力停止）") :
+    piper ? QStringLiteral("前往圆圈法向上方 %1 mm 并对准蓝轴")
+      .arg(piper_standoff_mm, 0, 'f', 0) :
     QStringLiteral("识别把脉区并前往预接触位"),
-    piper ? QStringLiteral("Dummy Test: Move to Target (Pressure Stop)") :
+    piper ? QStringLiteral("Hover %1 mm Along Circle Normal & Align Blue +Z")
+      .arg(piper_standoff_mm, 0, 'f', 0) :
     QStringLiteral("Recognize Pulse Region & Move to Pre-contact")));
   pulse_approach_button_->setToolTip(localized(
-    piper ? QStringLiteral("仅限非人体假体；保持 J6 姿态，XY ≤300 mm、Z ≤200 mm，压力异常请求取消。") :
+    piper ? QStringLiteral("工具拆除模式；拟合圆圈下方的局部皮肤平面，Link6 沿其法向悬停 %1 mm，蓝色 +Z 轴指向皮肤，并执行碰撞检查。")
+      .arg(piper_standoff_mm, 0, 'f', 0) :
     QStringLiteral("只执行经 MoveIt 碰撞检查的预接触运动，不接触人体、不施加压力。"),
-    piper ? QStringLiteral("Non-human dummy only; J6 fixed, XY ≤300 mm, Z ≤200 mm, pressure requests cancellation.") :
+    piper ? QStringLiteral("Tool-free mode; fit the skin plane under the circle, hover Link6 %1 mm along its normal, point blue +Z toward the skin, and run collision checking.")
+      .arg(piper_standoff_mm, 0, 'f', 0) :
     QStringLiteral("Runs only a collision-checked MoveIt pre-contact motion; no human contact or pressure.")));
+  board_corner_approach_button_->setVisible(piper);
+  board_corner_approach_button_->setText(localized(
+    QStringLiteral("标定验证：前往画面右下板角点法向上方 %1 mm")
+      .arg(piper_standoff_mm, 0, 'f', 0),
+    QStringLiteral("Calibration Check: Hover %1 mm Above Lower-right Board Corner")
+      .arg(piper_standoff_mm, 0, 'f', 0)));
   if (auto * title = findChild<QLabel *>(QStringLiteral("handeye_title"))) {
     title->setText(localized(QStringLiteral("手眼标定"), QStringLiteral("Hand-eye calibration")));
   }
   if (auto * hint = findChild<QLabel *>(QStringLiteral("handeye_hint"))) {
     const bool moveit_backend = handeyeUsesMoveItCalibration();
+    const bool adaptive_link5 = piper && handeyeEyeInHand() && !moveit_backend;
     const QString mode_zh = handeyeEyeInHand() ?
       QStringLiteral("眼在手上（相机装末端、标签固定）") :
       (piper ? QStringLiteral("眼在手外（相机固定、标签装末端法兰）") :
@@ -7063,13 +7796,20 @@ void DemoPanel::retranslateUi()
       QStringLiteral("eye-in-hand (camera on effector, fixed tag)") :
       (piper ? QStringLiteral("eye-on-base (fixed camera, tag on effector flange)") :
       QStringLiteral("eye-on-base (fixed camera, tag on gripper)"));
-    const QString hint_zh = moveit_backend ? QStringLiteral(
+    const QString hint_zh = adaptive_link5 ? QStringLiteral(
+      "当前为%1。按钮会启动 Link5 零历史外参自动标定：锁定 J6，低速完成 Bootstrap、"
+      "25°/35°/45°半球采样、留出选择与独立测试；仅测试通过才保存并发布结果。")
+      .arg(mode_zh) : moveit_backend ? QStringLiteral(
       "当前为%1，求解器为 MoveIt Calibration。启动后将在 RViz 打开独立标定窗口；"
       "请在那里确认 ChArUco 目标、4 个 frame 和 arm 规划组并手动采样。自动动作组暂不可用。")
       .arg(mode_zh) : QStringLiteral(
       "当前为%1。按钮会启动 AprilTag 跟踪和 easy_handeye2；可手动采集至少 12 个多轴姿态，或到“动作组编排”预览并执行“%2”，自动采样、计算、保存并发布 TF。")
       .arg(mode_zh).arg(automaticHandeyeSequenceName());
-    const QString hint_en = moveit_backend ? QStringLiteral(
+    const QString hint_en = adaptive_link5 ? QStringLiteral(
+      "Current mode: %1. The button runs zero-history Link5 calibration with J6 locked: "
+      "low-speed bootstrap, 25/35/45-degree cap sampling, holdout selection, and an independent "
+      "test. The result is saved and published only after the test passes.")
+      .arg(mode_en) : moveit_backend ? QStringLiteral(
       "Current mode: %1 with MoveIt Calibration. Starting opens its RViz calibration window; "
       "verify the ChArUco target, four frames, and arm planning group there, then sample manually. "
       "Automatic sequences are currently unavailable.")
@@ -7083,6 +7823,8 @@ void DemoPanel::retranslateUi()
     };
   set_handeye_label(QStringLiteral("handeye_backend_label"), QStringLiteral("标定包"), QStringLiteral("Calibration package"));
   set_handeye_label(QStringLiteral("handeye_mode_label"), QStringLiteral("标定模式"), QStringLiteral("Calibration mode"));
+  set_handeye_label(QStringLiteral("handeye_workspace_label"), QStringLiteral("标定工作域"), QStringLiteral("Calibration workspace"));
+  set_handeye_label(QStringLiteral("handeye_workspace_constraints_title"), QStringLiteral("当前约束"), QStringLiteral("Current constraints"));
   set_handeye_label(QStringLiteral("handeye_target_label"), QStringLiteral("标定目标"), QStringLiteral("Calibration target"));
   set_handeye_label(QStringLiteral("handeye_name_label"), QStringLiteral("名称"), QStringLiteral("Name"));
   set_handeye_label(QStringLiteral("handeye_robot_base_label"), QStringLiteral("机器人基座 frame"), QStringLiteral("Robot base frame"));
@@ -7102,6 +7844,19 @@ void DemoPanel::retranslateUi()
     handeye_mode_combo_->setItemText(1, localized(
       QStringLiteral("眼在手上（末端相机）"), QStringLiteral("Eye-in-hand (camera on effector)")));
   }
+  if (handeye_workspace_combo_->count() >= 2) {
+    handeye_workspace_combo_->setItemText(0, localized(
+      QStringLiteral("全局覆盖"), QStringLiteral("Global coverage")));
+    handeye_workspace_combo_->setItemText(1, localized(
+      QStringLiteral("任务工作域"), QStringLiteral("Task workspace")));
+  }
+  const bool local_workspace = handeye_workspace_combo_->currentData().toString() ==
+    QStringLiteral("local");
+  handeye_workspace_constraints_label_->setText(localized(
+    local_workspace ? QStringLiteral("倾角 <25°；camera Z <0.48 m") :
+    QStringLiteral("当前 25°/35°/45° 半球采样参数"),
+    local_workspace ? QStringLiteral("tilt <25°; camera Z <0.48 m") :
+    QStringLiteral("Current 25°/35°/45° hemisphere sampling parameters")));
   if (handeye_target_combo_->count() >= 3) {
     handeye_target_combo_->setItemText(0, localized(
       QStringLiteral("单个 AprilTag"), QStringLiteral("Single AprilTag")));
@@ -7239,6 +7994,13 @@ void DemoPanel::retranslateUi()
     QStringLiteral("深度图传输"), QStringLiteral("Depth stream")));
   camera_ir_checkbox_->setText(localized(
     QStringLiteral("红外图传输"), QStringLiteral("Infrared stream")));
+  const QString stream_selection_hint = localized(
+    QStringLiteral("这些选项决定下次启动驱动时启用哪些数据流；上方图像话题单独决定预览哪一路。"),
+    QStringLiteral(
+      "These options choose which streams the driver starts; the image topic above independently chooses the preview."));
+  camera_color_checkbox_->setToolTip(stream_selection_hint);
+  camera_depth_checkbox_->setToolTip(stream_selection_hint);
+  camera_ir_checkbox_->setToolTip(stream_selection_hint);
   camera_topic_refresh_button_->setText(localized(
     QStringLiteral("检索摄像头"), QStringLiteral("Discover cameras")));
   camera_topic_refresh_button_->setToolTip(localized(
@@ -7735,7 +8497,7 @@ QString DemoPanel::operationTitle(const QString & executable, bool chinese) cons
     return chinese ? QStringLiteral("把脉区预接触") : QStringLiteral("Pulse Pre-contact");
   }
   if (executable == QStringLiteral("piper_pulse_align")) {
-    return chinese ? QStringLiteral("假体压力停止测试") : QStringLiteral("Dummy Pressure-Stop Test");
+    return chinese ? QStringLiteral("Link6 视觉悬停") : QStringLiteral("Link6 Vision Hover");
   }
   return chinese ? QStringLiteral("操作") : QStringLiteral("Operation");
 }
@@ -7748,8 +8510,9 @@ bool DemoPanel::feedbackFresh() const
 
 bool DemoPanel::stateValidityFresh() const
 {
-  const auto response = validity_state_->response_ms.load();
-  return validity_state_->valid.load() && response > 0 &&
+  std::lock_guard<std::mutex> lock(validity_state_->mutex);
+  const auto response = validity_state_->response_ms;
+  return validity_state_->valid && response > 0 &&
          steadyMilliseconds() - response < 1000;
 }
 

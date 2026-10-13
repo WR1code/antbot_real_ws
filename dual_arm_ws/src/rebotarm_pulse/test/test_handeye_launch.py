@@ -43,6 +43,13 @@ def test_easy_handeye_and_moveit_calibration_backends_are_supported():
         MODULE._validate_calibration_backend("unknown")
 
 
+def test_workspace_modes_are_declared_and_forwarded_to_adaptive_node():
+    source = LAUNCH_FILE.read_text(encoding="utf-8")
+    assert 'WORKSPACE_MODES = {"global", "local"}' in source
+    assert 'default_value="local"' in source
+    assert '"calibration_workspace_mode": workspace_mode' in source
+
+
 def test_single_tag_and_a4_board_targets_are_supported():
     MODULE._validate_target_type("single_tag", "36h11")
     MODULE._validate_target_type("a4_4tag_board", "36h11")
@@ -71,13 +78,35 @@ def test_handeye_launch_declares_automatic_sequence_node():
     assert 'default_value="12"' in source
     assert 'condition=IfCondition(LaunchConfiguration("use_auto_sequence"))' in source
     assert 'DeclareLaunchArgument("use_auto_sequence", default_value="true")' in source
-    assert 'if calibration_backend == "easy_handeye2":' in source
+    assert 'if calibration_backend == "easy_handeye2" and automation_mode == "sequence" and not record_only:' in source
+    assert 'elif automation_mode == "piperh_link5_adaptive" or record_only:' in source
+    assert 'executable="piperh_auto_handeye"' in source
 
 
 def test_handeye_launch_disables_easy_handeye_dummy_camera_transform():
     source = LAUNCH_FILE.read_text(encoding="utf-8")
 
     assert '"publish_dummy_transform": "false"' in source
+
+
+def test_record_only_launch_contains_no_calibration_backend_or_auto_sequence():
+    from launch import LaunchContext
+    from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+    from launch.utilities import perform_substitutions
+    from launch_ros.actions import Node
+    context = LaunchContext()
+    for action in MODULE.generate_launch_description().entities:
+        if isinstance(action, DeclareLaunchArgument):
+            context.launch_configurations[action.name] = perform_substitutions(context, action.default_value)
+    context.launch_configurations.update({
+        "record_only": "true", "calibration_type": "eye_in_hand",
+        "robot_effector_frame": "piperh/Link5", "target_type": "charuco_a4_5x7",
+    })
+    actions = MODULE._start_calibration(context)
+    assert not any(isinstance(action, IncludeLaunchDescription) for action in actions)
+    executables = [action.node_executable
+                   for action in actions if isinstance(action, Node)]
+    assert executables == ["rectify_node", "charuco_board_pose", "piperh_auto_handeye"]
 
 
 def test_handeye_launch_declares_four_tag_board_fusion_node():
@@ -87,6 +116,7 @@ def test_handeye_launch_declares_four_tag_board_fusion_node():
     assert 'detected_ids = [0, 1, 2, 3] if board_mode else [tag_id]' in source
     assert 'DeclareLaunchArgument("board_spacing_x_m", default_value="0.100")' in source
     assert 'DeclareLaunchArgument("board_spacing_y_m", default_value="0.120")' in source
+    assert source.count('("image", "/rebotarm_handeye/image_rect")') == 2
 
 
 def test_handeye_launch_declares_fixed_charuco_board_node():

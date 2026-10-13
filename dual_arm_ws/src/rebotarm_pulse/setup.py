@@ -12,7 +12,7 @@ setup(
     packages=find_packages(exclude=["test"]),
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
-        (f"share/{package_name}", ["package.xml", "README.md"]),
+        (f"share/{package_name}", ["package.xml", "README.md", "ANCHOR_REPEATABILITY.md"]),
         (os.path.join("share", package_name, "config"), glob("config/*.yaml")),
         (os.path.join("share", package_name, "launch"), glob("launch/*.launch.py")),
         (os.path.join("share", package_name, "web"), glob("web/*")),
@@ -29,6 +29,9 @@ setup(
             "apriltag_board_pose = rebotarm_pulse.apriltag_board_pose:main",
             "charuco_board_pose = rebotarm_pulse.charuco_board_pose:main",
             "auto_handeye_sequence = rebotarm_pulse.auto_handeye_sequence:main",
+            "piperh_auto_handeye = rebotarm_pulse.piperh_auto_handeye:main",
+            "handeye_single_tag_observation = rebotarm_pulse.handeye_single_tag_observation:main",
+            "anchor_repeatability = rebotarm_pulse.anchor_repeatability:main",
             "joint_target_move = rebotarm_pulse.joint_target_move:main",
             "pulse_approach = rebotarm_pulse.pulse_approach:main",
             "pressure_serial_bridge = rebotarm_pulse.pressure_serial_bridge:main",

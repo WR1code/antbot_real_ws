@@ -12,8 +12,8 @@ from piperh_control.playback_tracking import (
 )
 
 
-LOWER = [-2.618, 0.0, -2.96706, -2.356195, -1.56207, -3.14]
-UPPER = [2.618, 3.14, 0.0, 2.356195, 1.56207, 3.14]
+LOWER = [-2.6179938, 0.0, -2.9670597, -2.3561944, -1.5620696, -2.0943951]
+UPPER = [2.6179938, 3.1415926, 0.0, 2.3561944, 1.5620696, 2.0943951]
 Q0 = [0.0, 1.0, -1.0, 0.0, 0.0, 0.0]
 
 
@@ -68,11 +68,20 @@ def test_tracking_log_records_signed_error_and_statistics(tmp_path):
     assert math.isclose(wrap_to_pi(-math.pi - 0.1), math.pi - 0.1)
 
 
-@pytest.mark.parametrize("actual_offset,expected", [(0.0, "SUCCESS"), (0.1, "TRACKING_TIMEOUT")])
-def test_action_waits_for_real_final_convergence(monkeypatch, tmp_path, actual_offset, expected):
+@pytest.mark.parametrize("actual_offset,tolerance,goal_time_ns,expected", [
+    (0.0, None, 0, "SUCCESS"),
+    (0.1, None, 0, "TRACKING_TIMEOUT"),
+    (0.001535, 0.0001, 0, "TRACKING_TIMEOUT"),
+    (0.00005, 0.0001, 0, "SUCCESS"),
+    (0.03, 0.1, 0, "TRACKING_TIMEOUT"),
+    ("converging", 0.0001, 0, "SUCCESS"),
+    (0.0, 0.0001, 5_000_000, "TRACKING_TIMEOUT"),
+])
+def test_action_waits_for_real_final_convergence(monkeypatch, tmp_path, actual_offset, tolerance, goal_time_ns, expected):
     """Run the existing ActionServer execution method with an entirely fake clock/driver."""
     from types import SimpleNamespace
     from control_msgs.action import FollowJointTrajectory
+    from control_msgs.msg import JointTolerance
     from trajectory_msgs.msg import JointTrajectoryPoint
     from piperh_control import hardware_adapter as adapter
 
@@ -83,6 +92,9 @@ def test_action_waits_for_real_final_convergence(monkeypatch, tmp_path, actual_o
     ))
     monkeypatch.setattr(adapter.rclpy, "ok", lambda: True)
     goal = FollowJointTrajectory.Goal()
+    goal.goal_time_tolerance.nanosec = goal_time_ns
+    if tolerance is not None:
+        goal.goal_tolerance = [JointTolerance(name="joint1", position=tolerance)]
     goal.trajectory.joint_names = [f"joint{j}" for j in range(1, 7)]
     for nanoseconds in (0, 20_000_000):
         point = JointTrajectoryPoint()
@@ -102,7 +114,7 @@ def test_action_waits_for_real_final_convergence(monkeypatch, tmp_path, actual_o
     def feedback():
         stamp.value += 1
         q = list(Q0)
-        q[0] += actual_offset
+        q[0] += (0.001535 if stamp.value < 5 else 0.00005) if actual_offset == "converging" else actual_offset
         return adapter.JointFeedback(tuple(q), float(stamp.value), 0.001,
                                      True, adapter.NORMAL_FEEDBACK_SOURCE)
 
@@ -129,4 +141,5 @@ def test_action_waits_for_real_final_convergence(monkeypatch, tmp_path, actual_o
     assert (result.error_code == FollowJointTrajectory.Result.SUCCESSFUL) == (expected == "SUCCESS")
     if expected == "TRACKING_TIMEOUT":
         assert "TRACKING_TIMEOUT" in result.error_string
+        assert "goal_tolerances=" in result.error_string
     assert len(list(tmp_path.glob("playback_tracking_*.csv"))) == 1

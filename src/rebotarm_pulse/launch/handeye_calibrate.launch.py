@@ -208,6 +208,7 @@ def _start_calibration(context):
                 ],
                 remappings=[
                     ("detections", "/rebotarm_handeye/detections"),
+                    ("image", "/rebotarm_handeye/image_rect"),
                     ("camera_info", camera_info_topic),
                 ],
             )

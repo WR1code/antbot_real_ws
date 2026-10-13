@@ -58,6 +58,7 @@ def make_staged_precontact(
     maximum_vertical_translation_m: float,
     lateral_deadband_m: float = 0.001,
     allow_zero_standoff: bool = False,
+    approach_axis: Vector3 | None = None,
 ) -> StagedPrecontact:
     """Plan a hover when farther than standoff, otherwise use the direct goal.
 
@@ -69,8 +70,13 @@ def make_staged_precontact(
         current_link, current_orientation, target, standoff_m, tip_offset_m,
         maximum_horizontal_translation_m, maximum_vertical_translation_m,
         allow_zero_standoff=allow_zero_standoff,
+        approach_axis=approach_axis,
     )
-    inward = normalize(rotate_vector(orientation, (0.0, 0.0, 1.0)))
+    inward = normalize(
+        approach_axis
+        if approach_axis is not None
+        else rotate_vector(orientation, (0.0, 0.0, 1.0))
+    )
     current_tip = add(current_link, scale(inward, tip_offset_m))
     clearance = dot(subtract(target, current_tip), inward)
     if not math.isfinite(clearance):

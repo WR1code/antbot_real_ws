@@ -3,6 +3,7 @@ piper_pulse_target:
     target_topic: /meridian_hand_vision/pulse_point
     source_status_topic: /meridian_hand_vision/pulse_status
     arm_direction_topic: /meridian_hand_vision/arm_direction
+    surface_normal_topic: /meridian_hand_vision/surface_normal
     planning_frame: piperh_planning_world
     calibration_name: piperh_camera_eye_in_hand
     calibration_bridge_frame: piperh/Link5

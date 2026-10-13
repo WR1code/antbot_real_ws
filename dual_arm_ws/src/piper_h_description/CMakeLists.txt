@@ -21,7 +21,11 @@ find_package(ament_cmake REQUIRED)
 # further dependencies manually.
 # find_package(<dependency> REQUIRED)
 install(
-  DIRECTORY launch  meshes rviz urdf 
+  DIRECTORY launch meshes rviz urdf
+  DESTINATION share/${PROJECT_NAME}
+)
+install(
+  FILES OFFICIAL_MODEL.md LICENSE.agx_arm_urdf
   DESTINATION share/${PROJECT_NAME}
 )
 if(BUILD_TESTING)

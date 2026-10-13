@@ -11,11 +11,15 @@ def test_staged_precontact_execution_keeps_existing_safety_distances():
     assert params["enable_auto_sensor_axis_alignment"] is False
     assert params["sensor_array_axis_local"] == [0.0, 1.0, 0.0]
     assert params["standoff_m"] == 0.060
+    assert params["link6_hover_mode"] is False
+    assert params["link6_hover_continue_on_visual_dropout"] is True
     assert params["dummy_contact_mode"] is False
     assert params["dummy_max_cartesian_speed_m_s"] <= 0.005
     assert params["dummy_execution_timeout_sec"] <= 90.0
     assert params["maximum_horizontal_translation_m"] == 0.300
     assert params["maximum_vertical_translation_m"] == 0.200
+    assert params["link6_hover_roll_search_deg"][0] == 0.0
+    assert set(params["link6_hover_roll_search_deg"]) >= {-90.0, 0.0, 90.0, 180.0}
     assert params["target_filter_window_sec"] == 0.6
     assert params["target_stable_duration_sec"] == 0.0
     assert params["target_stable_min_samples"] == 3

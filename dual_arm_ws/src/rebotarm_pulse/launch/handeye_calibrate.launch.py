@@ -24,6 +24,8 @@ TAG_FAMILY_CODE_COUNTS = {
 
 CALIBRATION_TYPES = {"eye_on_base", "eye_in_hand"}
 CALIBRATION_BACKENDS = {"easy_handeye2", "moveit_calibration"}
+AUTOMATION_MODES = {"sequence", "piperh_link5_adaptive"}
+WORKSPACE_MODES = {"global", "local"}
 TARGET_TYPES = {"single_tag", "a4_4tag_board", "charuco_a4_5x7"}
 AUTO_SEQUENCE_BY_TYPE = {
     "eye_on_base": "自动手眼标定_DM_12姿态",
@@ -89,6 +91,20 @@ def _start_calibration(context):
     _validate_calibration_type(calibration_type)
     calibration_backend = value("calibration_backend")
     _validate_calibration_backend(calibration_backend)
+    automation_mode = value("automation_mode")
+    workspace_mode = value("calibration_workspace_mode")
+    record_only = value("record_only").lower() == "true"
+    if record_only and (calibration_type != "eye_in_hand" or
+                        not value("robot_effector_frame").endswith("Link5")):
+        raise ValueError("record-only requires eye_in_hand and robot_effector_frame ending in Link5")
+    if automation_mode not in AUTOMATION_MODES:
+        raise ValueError(f"unsupported automation_mode {automation_mode!r}")
+    if workspace_mode not in WORKSPACE_MODES:
+        raise ValueError(f"unsupported calibration_workspace_mode {workspace_mode!r}")
+    if automation_mode == "piperh_link5_adaptive" and (
+        calibration_type != "eye_in_hand" or calibration_backend != "easy_handeye2"
+    ):
+        raise ValueError("Piper-H Link5 adaptive mode requires easy_handeye2 eye_in_hand")
     tag_size = float(value("tag_size_m"))
     tracking_marker = value("tracking_marker_frame")
     auto_sequence_name = value("auto_sequence_name").strip()
@@ -208,11 +224,12 @@ def _start_calibration(context):
                 ],
                 remappings=[
                     ("detections", "/rebotarm_handeye/detections"),
+                    ("image", "/rebotarm_handeye/image_rect"),
                     ("camera_info", camera_info_topic),
                 ],
             )
         )
-    if calibration_backend == "easy_handeye2":
+    if calibration_backend == "easy_handeye2" and automation_mode == "sequence" and not record_only:
         actions.extend(
             [
                 IncludeLaunchDescription(
@@ -251,6 +268,56 @@ def _start_calibration(context):
                 ),
             ]
         )
+    elif automation_mode == "piperh_link5_adaptive" or record_only:
+        if target_type == "single_tag":
+            actions.append(Node(
+                package="rebotarm_pulse", executable="handeye_single_tag_observation",
+                namespace="rebotarm_handeye", output="screen",
+                parameters=[{
+                    "tag_id": tag_id, "tag_size_m": tag_size,
+                    "marker_frame": tracking_marker,
+                }],
+                remappings=[
+                    ("detections", "/rebotarm_handeye/detections"),
+                    ("camera_info", camera_info_topic),
+                ],
+            ))
+        board_centre = [0.0875, 0.1225, 0.0] if charuco_mode else [0.0, 0.0, 0.0]
+        board_corners = (
+            [0.0, 0.0, 0.0, 0.175, 0.0, 0.0,
+             0.175, 0.245, 0.0, 0.0, 0.245, 0.0]
+            if charuco_mode else
+            [-0.080, -0.090, 0.0, 0.080, -0.090, 0.0,
+             0.080, 0.090, 0.0, -0.080, 0.090, 0.0]
+        )
+        actions.append(
+            Node(
+                package="rebotarm_pulse",
+                executable="piperh_auto_handeye",
+                name="piperh_auto_handeye",
+                output="screen",
+                parameters=[
+                    config,
+                    {
+                        "calibration_name": value("name"),
+                        "calibration_workspace_mode": workspace_mode,
+                        "robot_base_frame": value("robot_base_frame"),
+                        "robot_effector_frame": value("robot_effector_frame"),
+                        "tracking_base_frame": value("tracking_base_frame"),
+                        "tracking_marker_frame": tracking_marker,
+                        "joint_state_topic": value("joint_state_topic"),
+                        "camera_info_topic": camera_info_topic,
+                        "xbox_armed_topic": value("xbox_armed_topic"),
+                        "moveit_namespace": value("moveit_namespace"),
+                        "trajectory_action": value("trajectory_action"),
+                        "motion_enabled": not record_only,
+                        "record_only": record_only,
+                        "charuco_board_center_xyz": board_centre,
+                        "board_outer_corners_xyz": board_corners,
+                    }
+                ],
+            )
+        )
     return actions
 
 
@@ -258,6 +325,8 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription(
         [
             DeclareLaunchArgument("name", default_value="rebotarm_camera"),
+            DeclareLaunchArgument("record_only", default_value="false", choices=["true", "false"],
+                                 description="record synchronized observations only; no motion/solver/calib write"),
             DeclareLaunchArgument(
                 "calibration_type",
                 default_value="eye_on_base",
@@ -269,6 +338,18 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="easy_handeye2",
                 choices=sorted(CALIBRATION_BACKENDS),
                 description="hand-eye calibration UI and solver backend",
+            ),
+            DeclareLaunchArgument(
+                "automation_mode",
+                default_value="sequence",
+                choices=sorted(AUTOMATION_MODES),
+                description="saved sequence or zero-history Piper-H Link5 bootstrap",
+            ),
+            DeclareLaunchArgument(
+                "calibration_workspace_mode",
+                default_value="local",
+                choices=sorted(WORKSPACE_MODES),
+                description="global hemisphere coverage or local task workspace",
             ),
             DeclareLaunchArgument("robot_base_frame", default_value="base_link"),
             DeclareLaunchArgument("robot_effector_frame", default_value="gripper_tcp"),
@@ -304,6 +385,11 @@ def generate_launch_description() -> LaunchDescription:
                 "teach_status_topic", default_value="/rebotarm/teach/status"
             ),
             DeclareLaunchArgument("joint_state_topic", default_value="/joint_states"),
+            DeclareLaunchArgument("xbox_armed_topic", default_value="/rebot_xbox/armed"),
+            DeclareLaunchArgument("moveit_namespace", default_value=""),
+            DeclareLaunchArgument(
+                "trajectory_action", default_value="/follow_joint_trajectory"
+            ),
             DeclareLaunchArgument(
                 "teach_cancel_service", default_value="/rebotarm/teach/cancel"
             ),

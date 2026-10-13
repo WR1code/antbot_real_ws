@@ -47,8 +47,9 @@ from .command_authority import AuthoritativeWriter, AuthorityToken, CommandAutho
 
 ARM_JOINTS = tuple(f"joint{index}" for index in range(1, 7))
 NORMAL_FEEDBACK_SOURCE = "direct_socketcan_0x2A5_0x2A7"
-LOWER = (-2.618, 0.0, -2.96706, -2.356195, -1.56207, -3.14)
-UPPER = (2.618, 3.14, 0.0, 2.356195, 1.56207, 3.14)
+LOWER = (-2.6179938, 0.0, -2.9670597, -2.3561944, -1.5620696, -2.0943951)
+UPPER = (2.6179938, 3.1415926, 0.0, 2.3561944, 1.5620696, 2.0943951)
+START_STATE_MAX_BOUNDS_ERROR = 0.1
 
 
 @dataclass(frozen=True)
@@ -73,6 +74,72 @@ def bounded_arm(names: Sequence[str], positions: Sequence[float]) -> list[float]
     if any(value < low or value > high for value, low, high in zip(ordered, LOWER, UPPER)):
         return None
     return ordered
+
+
+def valid_model_feedback(positions: Sequence[float]) -> bool:
+    """Validate feedback against the model tolerance without changing it."""
+    if len(positions) != len(ARM_JOINTS):
+        return False
+    try:
+        values = tuple(float(value) for value in positions)
+    except (TypeError, ValueError):
+        return False
+    return all(
+        math.isfinite(value)
+        and low - START_STATE_MAX_BOUNDS_ERROR <= value
+        and value <= high + START_STATE_MAX_BOUNDS_ERROR
+        for value, low, high in zip(values, LOWER, UPPER)
+    )
+
+
+def normalize_start_prefix(
+    names: Sequence[str],
+    positions: Sequence[Sequence[float]],
+    max_bounds_error: float = START_STATE_MAX_BOUNDS_ERROR,
+) -> list[list[float]] | None:
+    """Clamp only a converging, initial trajectory prefix to physical limits.
+
+    MoveIt may start from raw feedback at most ``max_bounds_error`` outside an
+    official URDF boundary. Commands are clamped to the physical boundary until
+    the planned path enters the real range. A joint may not move farther out,
+    leave the range again, or finish outside it.
+    """
+    if (
+        len(names) != len(ARM_JOINTS)
+        or len(set(names)) != len(names)
+        or set(names) != set(ARM_JOINTS)
+        or not positions
+        or not math.isfinite(max_bounds_error)
+        or max_bounds_error < 0.0
+    ):
+        return None
+    order = [names.index(name) for name in ARM_JOINTS]
+    entered = [False] * len(ARM_JOINTS)
+    previous_error = [math.inf] * len(ARM_JOINTS)
+    normalized: list[list[float]] = []
+    for raw in positions:
+        if len(raw) != len(ARM_JOINTS):
+            return None
+        ordered = [float(raw[index]) for index in order]
+        if not all(math.isfinite(value) for value in ordered):
+            return None
+        command = []
+        for joint, (value, low, high) in enumerate(zip(ordered, LOWER, UPPER)):
+            error = max(low - value, value - high, 0.0)
+            if error == 0.0:
+                entered[joint] = True
+                command.append(value)
+                continue
+            if (
+                entered[joint]
+                or error > max_bounds_error
+                or error > previous_error[joint] + 1e-9
+            ):
+                return None
+            previous_error[joint] = error
+            command.append(min(max(value, low), high))
+        normalized.append(command)
+    return normalized if all(entered) else None
 
 
 def command_gate_reason(feedback_fresh: bool, motors_enabled: bool) -> str | None:
@@ -182,6 +249,7 @@ class HardwareAdapter(Node):
         self._last_grouped_feedback = 0.0
         self._last_grouped_joint_stamp = 0.0
         self._direct_can_feedback_count = 0
+        self._model_feedback_valid = False
         self._last_feedback_publish = 0.0
         self._timeout = float(self.get_parameter("feedback_timeout_sec").value)
         self._motor_enable_latch_timeout = float(
@@ -447,6 +515,7 @@ class HardwareAdapter(Node):
                 continue
             now = time.monotonic()
             publish = False
+            model_feedback_valid = valid_model_feedback(sample.positions)
             with self._lock:
                 if sample.timestamp <= self._last_joint_stamp:
                     continue
@@ -454,9 +523,12 @@ class HardwareAdapter(Node):
                 self._last_feedback = now
                 self._direct_can_feedback_count += 1
                 self._arm = list(sample.positions)
-                if now - self._last_feedback_publish >= self._feedback_publish_period:
+                self._model_feedback_valid = model_feedback_valid
+                if (
+                    model_feedback_valid
+                    and now - self._last_feedback_publish >= self._feedback_publish_period
+                ):
                     self._last_feedback_publish = now
-                    arm = list(self._arm)
                     publish = True
             if publish:
                 output = JointState()
@@ -465,7 +537,8 @@ class HardwareAdapter(Node):
                     (sample.timestamp - int(sample.timestamp)) * 1e9
                 )
                 output.name = list(ARM_JOINTS)
-                output.position = arm
+                # Calibration and TF must see the unmodified CAN joint values.
+                output.position = list(sample.positions)
                 self._feedback_pub.publish(output)
 
     def get_joint_feedback(self) -> JointFeedback:
@@ -475,7 +548,11 @@ class HardwareAdapter(Node):
             freshness_stamp = self._last_feedback
             sample_stamp = self._last_joint_stamp
             positions = tuple(self._arm)
-            valid = bool(freshness_stamp) and bool(sample_stamp)
+            valid = (
+                bool(freshness_stamp)
+                and bool(sample_stamp)
+                and self._model_feedback_valid
+            )
         age = now - freshness_stamp if freshness_stamp else math.inf
         return JointFeedback(positions, sample_stamp, age,
                              valid and age <= self._playback_feedback_timeout,
@@ -533,6 +610,7 @@ class HardwareAdapter(Node):
                 ),
                 "grouped_joint_feedback_stamp": self._last_grouped_joint_stamp,
                 "direct_can_feedback_count": self._direct_can_feedback_count,
+                "model_feedback_valid": self._model_feedback_valid,
                 "direct_can_dropped_cycles": self._direct_can_grouper.dropped_cycles,
                 "direct_can_wide_span_cycles": self._direct_can_grouper.wide_span_cycles,
                 "driver_feedback_age_sec": (
@@ -570,7 +648,9 @@ class HardwareAdapter(Node):
             gravity_phase = self._gravity_phase
             gravity_fault = self._gravity_fault
             feedback_age = now - self._last_feedback
-            feedback_fresh = feedback_age <= self._timeout
+            raw_feedback_fresh = feedback_age <= self._timeout
+            model_feedback_valid = self._model_feedback_valid
+            feedback_fresh = raw_feedback_fresh and model_feedback_valid
             # A stale sample immediately closes the command gate through
             # control_loop_active/_publish_driver.  Keep the operator's enable
             # acknowledgement across a short scheduling/CAN gap, however, so
@@ -595,7 +675,9 @@ class HardwareAdapter(Node):
         message.joint_names = list(ARM_JOINTS)
         message.per_joint_status_code = [0] * len(ARM_JOINTS)
         message.error_codes = (
-            (["STALE_FEEDBACK"] if not feedback_fresh else []) +
+            (["STALE_FEEDBACK"] if not raw_feedback_fresh else []) +
+            (["JOINT_FEEDBACK_OUTSIDE_MODEL_TOLERANCE"]
+             if raw_feedback_fresh and not model_feedback_valid else []) +
             # A gravity-loop failure is returned by the start/stop service and
             # remains in the teach UI message.  Once the adapter has safely
             # returned to IDLE it is history, not a live arm fault; reporting
@@ -607,7 +689,10 @@ class HardwareAdapter(Node):
 
     def _feedback_fresh(self) -> bool:
         with self._lock:
-            return time.monotonic() - self._last_feedback <= self._timeout
+            return (
+                time.monotonic() - self._last_feedback <= self._timeout
+                and self._model_feedback_valid
+            )
 
     def _publish_driver_authority(self) -> None:
         message = String()
@@ -624,7 +709,10 @@ class HardwareAdapter(Node):
                     "motion command suppressed: no live Piper command authority"
                 )
                 return False
-            feedback_fresh = time.monotonic() - self._last_feedback <= self._timeout
+            feedback_fresh = (
+                time.monotonic() - self._last_feedback <= self._timeout
+                and self._model_feedback_valid
+            )
             enabled = self._motors_enabled
             gravity_busy = self._gravity_active or self._gravity_transition
             if gravity_busy:
@@ -665,10 +753,10 @@ class HardwareAdapter(Node):
             if self._gravity_active or self._gravity_transition or self._action_active:
                 return GoalResponse.REJECT
             trajectory = goal.trajectory
-            valid = bool(trajectory.points) and all(
-                bounded_arm(trajectory.joint_names, point.positions) is not None
-                for point in trajectory.points
-            )
+            valid = normalize_start_prefix(
+                trajectory.joint_names,
+                [point.positions for point in trajectory.points],
+            ) is not None
             if valid:
                 authority = self._command_authority.acquire(
                     "action", lease_seconds=self._authority_lease)
@@ -699,7 +787,39 @@ class HardwareAdapter(Node):
         result = FollowJointTrajectory.Result()
         trajectory = goal_handle.request.trajectory
         try:
-            ordered = [bounded_arm(trajectory.joint_names, p.positions) for p in trajectory.points]
+            # A goal may tighten the configured safety limits, but cannot
+            # relax them. Resolve by name because trajectory order can vary.
+            goal_tolerances = dict.fromkeys(ARM_JOINTS, self._playback_tolerance)
+            seen_tolerances = set()
+            for tolerance in goal_handle.request.goal_tolerance:
+                if tolerance.name not in goal_tolerances or tolerance.name in seen_tolerances:
+                    raise ValueError(f"invalid or duplicate goal tolerance joint: {tolerance.name}")
+                seen_tolerances.add(tolerance.name)
+                if not all(math.isfinite(value) for value in (
+                    tolerance.position, tolerance.velocity, tolerance.acceleration,
+                )) or tolerance.position < -1.0 or -1.0 < tolerance.position < 0.0:
+                    raise ValueError("invalid goal tolerance")
+                if tolerance.velocity != 0.0 or tolerance.acceleration != 0.0:
+                    raise ValueError("velocity/acceleration goal tolerances are unsupported")
+                if tolerance.position > 0.0:
+                    goal_tolerances[tolerance.name] = min(self._playback_tolerance, tolerance.position)
+            goal_limits = tuple(goal_tolerances[name] for name in ARM_JOINTS)
+            duration = goal_handle.request.goal_time_tolerance
+            requested_settle = duration.sec + duration.nanosec * 1e-9
+            if not math.isfinite(requested_settle) or requested_settle < 0.0:
+                raise ValueError("invalid goal time tolerance")
+            settle_timeout = (
+                min(requested_settle, self._playback_settle_timeout)
+                if requested_settle > 0.0 else self._playback_settle_timeout
+            )
+            ordered = normalize_start_prefix(
+                trajectory.joint_names,
+                [point.positions for point in trajectory.points],
+            )
+            if ordered is None:
+                raise ValueError(
+                    "trajectory does not enter and remain inside Piper-H limits"
+                )
             prepared = prepare_trajectory(
                 [self._duration(p) for p in trajectory.points], ordered,
                 velocity_limit=self._playback_velocity,
@@ -734,7 +854,7 @@ class HardwareAdapter(Node):
             f"raw_samples={len(prepared.times)} interpolation_frequency={self._playback_rate:.1f}Hz "
             f"velocity_limit={self._playback_velocity:.3f}rad/s "
             f"acceleration_limit={self._playback_acceleration:.3f}rad/s2 "
-            f"joint_tolerance={self._playback_tolerance:.3f}rad "
+            f"goal_tolerances={goal_limits}rad settle_timeout={settle_timeout:.3f}s "
             f"feedback_source={feedback.source} feedback_age={feedback.feedback_age:.3f}s "
             f"vel_all={self._driver_speed} vel_all_mode=fixed "
             f"tracking_csv={path}"
@@ -828,18 +948,20 @@ class HardwareAdapter(Node):
                     abort_since = None
                 if settling:
                     if feedback.feedback_timestamp != last_feedback_stamp:
-                        stable = stable + 1 if max_error < self._playback_tolerance else 0
+                        within_goal = all(abs(error) <= limit for error, limit in zip(last_errors, goal_limits))
+                        stable = stable + 1 if within_goal else 0
                     if stable >= self._playback_stable_cycles:
                         status = "SUCCESS"
                         result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
                         goal_handle.succeed()
                         return result
-                    if elapsed - prepared.duration >= self._playback_settle_timeout:
+                    if elapsed - prepared.duration >= settle_timeout:
                         status = "TRACKING_TIMEOUT"
                         result.error_code = FollowJointTrajectory.Result.GOAL_TOLERANCE_VIOLATED
                         result.error_string = (
                             f"TRACKING_TIMEOUT: final_target={list(final_target)} "
-                            f"final_actual={list(last_actual)} final_error={list(last_errors)}")
+                            f"final_actual={list(last_actual)} final_error={list(last_errors)} "
+                            f"goal_tolerances={list(goal_limits)} settle_timeout={settle_timeout}")
                         goal_handle.abort()
                         return result
                 last_feedback_stamp = feedback.feedback_timestamp

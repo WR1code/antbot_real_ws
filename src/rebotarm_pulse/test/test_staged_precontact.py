@@ -58,6 +58,20 @@ def test_dummy_target_mode_requires_explicit_opt_in_and_ends_at_target():
     assert plan.nominal_precontact_link == pytest.approx((0.0, 0.0, 0.18401))
 
 
+def test_bare_link6_hover_puts_target_100_mm_forward_on_local_blue_z_axis():
+    # +90 degrees about Y rotates Link6 local +Z onto planning-frame +X.
+    quarter_turn_y = (0.0, 2.0 ** -0.5, 0.0, 2.0 ** -0.5)
+    plan = make_staged_precontact(
+        (0.10, -0.20, 1.20), quarter_turn_y, (0.25, -0.18, 0.95),
+        0.100, 0.0, 0.300, 0.300, 0.001,
+    )
+    assert plan.current_tip == pytest.approx((0.10, -0.20, 1.20))
+    assert plan.nominal_precontact_link == pytest.approx((0.15, -0.18, 0.95))
+    assert plan.nominal_precontact_tip == pytest.approx((0.15, -0.18, 0.95))
+    assert plan.nominal_approach == pytest.approx((1.0, 0.0, 0.0))
+    assert plan.tip_offset_m == 0.0
+
+
 def test_small_deviation_is_used_when_nominal_path_is_unavailable():
     candidates = approach_candidates(_plan(), (1.0, 0.0, 0.0))
     selected = first_valid_candidate(

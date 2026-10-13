@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import replace
 from datetime import datetime
 from enum import Enum
 import json
@@ -42,6 +43,9 @@ from .approach_geometry import (
     horizontal_vertical_displacement,
     inside_workspace,
     norm,
+    point_to_segment_distance,
+    quaternion_align_local_z,
+    quaternion_roll_about_local_z,
     rotate_vector,
     subtract,
     translation_within_axis_limits,
@@ -110,6 +114,10 @@ class PiperPulseAlign(MoveItDemoBase):
         self._latest_arm_direction: Vector3Stamped | None = None
         self._arm_direction_received = 0.0
         self._arm_direction_frame = ""
+        self._latest_surface_normal: Vector3Stamped | None = None
+        self._surface_normal_received = 0.0
+        self._surface_normal_frame = ""
+        self._surface_normal_drift_since: float | None = None
         self._xbox_locked = False
         self._xbox_known = False
         self._selected_robot = ""
@@ -130,6 +138,7 @@ class PiperPulseAlign(MoveItDemoBase):
         self._context: dict = {}
         self._candidate_results: list[dict] = []
         self._attempt_invalidated = False
+        self._motion_sent_ever = False
         self._target_lost_reset = False
         self._retry_count = 0
         self._last_heartbeat = 0.0
@@ -151,6 +160,11 @@ class PiperPulseAlign(MoveItDemoBase):
             min_samples=int(self._param("arm_direction_stable_min_samples")),
             stable_deg=float(self._param("arm_direction_stable_deg")),
         )
+        self._surface_normal_filter = DirectionStabilityFilter(
+            window_sec=float(self._param("surface_normal_filter_window_sec")),
+            min_samples=int(self._param("surface_normal_stable_min_samples")),
+            stable_deg=float(self._param("surface_normal_stable_deg")),
+        )
         self._pressure_filters = {
             channel: PressureDebouncer(
                 threshold_pa=float(self._param("pressure_precontact_delta_pa")),
@@ -168,6 +182,10 @@ class PiperPulseAlign(MoveItDemoBase):
         self.node.create_subscription(
             Vector3Stamped, str(self._param("arm_direction_topic")),
             self._arm_direction_cb, qos_profile_sensor_data,
+        )
+        self.node.create_subscription(
+            Vector3Stamped, str(self._param("surface_normal_topic")),
+            self._surface_normal_cb, qos_profile_sensor_data,
         )
         status_qos = QoSProfile(depth=1)
         status_qos.reliability = ReliabilityPolicy.RELIABLE
@@ -213,7 +231,8 @@ class PiperPulseAlign(MoveItDemoBase):
         self.node.create_timer(self._heartbeat_period, self._heartbeat)
         self.node.get_logger().info(
             f"Piper-H pre-contact JSONL: {self._diagnostics.path}; "
-            f"execute_motion={str(bool(self._param('execute_motion'))).lower()}"
+            f"execute_motion={str(bool(self._param('execute_motion'))).lower()}; "
+            f"link6_hover_mode={str(bool(self._param('link6_hover_mode'))).lower()}"
         )
 
     def _transition(self, state: PlanningState, reason: str = "") -> None:
@@ -272,6 +291,21 @@ class PiperPulseAlign(MoveItDemoBase):
             self._target_received = candidate_received
             self._last_target_acquisition_ns = acquisition_stamp_ns
             self._target_lost_reset = False
+            if (
+                self._planning_state == PlanningState.PRECONTACT_EXECUTING
+                and bool(self._param("link6_hover_mode"))
+                and bool(self._param("link6_hover_continue_on_visual_dropout"))
+                and (status.hard_jump or status.hard_drift)
+            ):
+                # Endpoint-test mode follows the already accepted frozen path.
+                # Eye-in-hand motion can create apparent world-target drift from
+                # calibration/timestamp residuals, so record but do not cancel.
+                self._emit(
+                    "frozen_visual_update_ignored",
+                    reason=("TARGET_HARD_JUMP" if status.hard_jump else "TARGET_MOVED"),
+                    target_motion_mm=status.drift_m * 1000.0,
+                )
+                return
             if status.reacquire_result == "REACQUIRED_SAME_TARGET" and (
                 previous_age is not None
                 and previous_age > float(self._param("target_dropout_grace_sec"))
@@ -338,6 +372,19 @@ class PiperPulseAlign(MoveItDemoBase):
             except ValueError:
                 self._primary_blocker = "ARM_DIRECTION_UNSTABLE"
 
+    def _surface_normal_cb(self, message: Vector3Stamped) -> None:
+        if message.header.frame_id:
+            self._latest_surface_normal = message
+            self._surface_normal_received = time.monotonic()
+            self._surface_normal_frame = message.header.frame_id
+            try:
+                self._surface_normal_filter.add(
+                    self._surface_normal_received,
+                    (float(message.vector.x), float(message.vector.y), float(message.vector.z)),
+                )
+            except ValueError:
+                self._primary_blocker = "SURFACE_NORMAL_UNSTABLE"
+
     def _xbox_cb(self, message: Bool) -> None:
         self._xbox_known = True
         self._xbox_locked = not bool(message.data)
@@ -369,12 +416,14 @@ class PiperPulseAlign(MoveItDemoBase):
         plan_id = self._diagnostics.new_plan()
         self._candidate_results = []
         self._attempt_invalidated = False
+        self._surface_normal_drift_since = None
         self._local_pressure_baseline = None
         for pressure_filter in self._pressure_filters.values():
             pressure_filter.set_baseline(None)
         self._context = {
             "motion_sent": False,
             "execute_motion": bool(self._param("execute_motion")),
+            "link6_hover_mode": bool(self._param("link6_hover_mode")),
         }
         self.node.get_logger().info(
             f"[PLAN] plan_id={plan_id} started reason={reason} previous_plan_id={old_plan or 'NONE'}"
@@ -610,12 +659,27 @@ class PiperPulseAlign(MoveItDemoBase):
                 self._target_filter.reset("TARGET_HARD_TIMEOUT")
                 self._target_lost_reset = True
                 if (
-                    bool(self._param("dummy_contact_mode"))
+                    (
+                        bool(self._param("dummy_contact_mode"))
+                        or (
+                            bool(self._param("link6_hover_mode"))
+                            and bool(self._param(
+                                "link6_hover_continue_on_visual_dropout"
+                            ))
+                        )
+                    )
                     and self._planning_state == PlanningState.PRECONTACT_EXECUTING
                 ):
                     # The accepted trajectory already contains the frozen goal.
-                    # Camera occlusion during dummy execution is diagnostic only.
-                    self._emit("dummy_target_dropout", reason="FROZEN_GOAL_CONTINUES")
+                    # Eye-in-hand motion can move that goal out of view, so a
+                    # dropout during execution is diagnostic only.  A detected
+                    # hard target move still invalidates the attempt separately.
+                    self._emit(
+                        "frozen_target_dropout",
+                        reason="FROZEN_GOAL_CONTINUES",
+                        mode=("link6_hover" if bool(self._param("link6_hover_mode"))
+                              else "dummy_contact"),
+                    )
                 else:
                     self._attempt_invalidated = True
                     self._transition(PlanningState.TARGET_TRACKING, "TARGET_LOST")
@@ -638,7 +702,7 @@ class PiperPulseAlign(MoveItDemoBase):
             f"blocker={self._primary_blocker}"
         )
         gates = snapshot.get("gates", {})
-        pressure_pass = all(
+        pressure_pass = not self._pressure_monitor_required() or all(
             gates.get(name, {}).get("result") == "PASS"
             for name in ("pressure_source_unique", "pressure_connected",
                          "pressure_zeroed", "pressure_fresh")
@@ -651,7 +715,7 @@ class PiperPulseAlign(MoveItDemoBase):
             f"{float(self._param('target_stable_radius_m')) * 1000.0:.1f}mm; "
             f"TARGET AGE: {'PASS' if target_age_pass else 'WAIT'} "
             f"{snapshot['target_age_ms']}ms; "
-            f"PRESSURE: {'PASS' if pressure_pass else 'FAIL'} "
+            f"PRESSURE: {'NOT_REQUIRED' if not self._pressure_monitor_required() else 'PASS' if pressure_pass else 'FAIL'} "
             f"connected={snapshot['serial_connected']}; "
             f"IK: {gates.get('ik_hover', {}).get('result', 'NOT_CHECKED')}"
         )
@@ -741,6 +805,10 @@ class PiperPulseAlign(MoveItDemoBase):
             for channel in ("s1", "s2", "s3")
         )
 
+    def _pressure_monitor_required(self) -> bool:
+        """The bare-Link6 hover remains non-contact and has no pressure tool."""
+        return not bool(self._param("link6_hover_mode"))
+
     def _capture_local_pressure_baseline(self) -> bool:
         window_sec = float(self._param("local_baseline_window_sec"))
         minimum_samples = int(self._param("local_baseline_min_samples"))
@@ -788,8 +856,21 @@ class PiperPulseAlign(MoveItDemoBase):
     def run(self) -> bool:
         execute_motion = bool(self._param("execute_motion"))
         dummy_mode = bool(self._param("dummy_contact_mode"))
+        link6_hover_mode = bool(self._param("link6_hover_mode"))
+        if link6_hover_mode and dummy_mode:
+            self._set_blocker(
+                "INTERNAL_ERROR", "link6_hover_mode and dummy_contact_mode are mutually exclusive"
+            )
+            self._summary(False, "INTERNAL_ERROR")
+            return False
         goal_standoff_m = 0.0 if dummy_mode else float(self._param("standoff_m"))
-        horizontal_limit_m = min(float(self._param("maximum_horizontal_translation_m")), 0.300)
+        # The bare-Link6 hover button is allowed a slightly longer lateral
+        # repositioning than the contact-tool workflow. It remains explicitly
+        # bounded and still passes IK, collision and Cartesian path checks.
+        horizontal_hard_cap_m = 0.400 if link6_hover_mode else 0.300
+        horizontal_limit_m = min(
+            float(self._param("maximum_horizontal_translation_m")), horizontal_hard_cap_m
+        )
         vertical_limit_m = min(float(self._param("maximum_vertical_translation_m")), 0.200)
         self._new_plan("USER_REQUEST" if self._retry_count == 0 else "TARGET_REPLANNING")
         if not self._cartesian.wait_for_service(timeout_sec=10.0):
@@ -810,7 +891,7 @@ class PiperPulseAlign(MoveItDemoBase):
             self._set_blocker("INTERNAL_ERROR", "/check_state_validity unavailable")
             self._summary(False, "INTERNAL_ERROR")
             return False
-        if not self._tool_collision_model_loaded():
+        if not link6_hover_mode and not self._tool_collision_model_loaded():
             self._set_blocker("TOOL_ENVELOPE_COLLISION", "collision model unavailable")
             self._summary(False, "TOOL_ENVELOPE_COLLISION")
             return False
@@ -839,17 +920,46 @@ class PiperPulseAlign(MoveItDemoBase):
         if not self._wait_for_target_recovery():
             self._summary(False, self._primary_blocker)
             return False
+        goal_orientation = current_quaternion
+        approach_axis = None
+        if link6_hover_mode:
+            surface_normal, normal_reason = (
+                self._wait_for_surface_normal_in_planning_frame()
+            )
+            if surface_normal is None:
+                self._set_blocker("SURFACE_NORMAL_UNAVAILABLE", normal_reason)
+                self._summary(False, "SURFACE_NORMAL_UNAVAILABLE")
+                return False
+            if not self._wait_for_target_recovery():
+                self._summary(False, self._primary_blocker)
+                return False
+            try:
+                goal_orientation = quaternion_align_local_z(
+                    current_quaternion, surface_normal
+                )
+            except ValueError as error:
+                self._set_blocker("SURFACE_NORMAL_UNAVAILABLE", str(error))
+                self._summary(False, "SURFACE_NORMAL_UNAVAILABLE")
+                return False
+            # Hover 100 mm outward along the normal of the local skin plane
+            # fitted under the displayed pulse circle.  The normal points from
+            # the camera side into the skin, so subtracting it places Link6
+            # above the surface while local +Z points back toward the skin.
+            approach_axis = surface_normal
+            self._context["surface_normal_planning_frame"] = surface_normal
+            self._context["goal_Link6_orientation_xyzw"] = goal_orientation
         try:
             plan = make_staged_precontact(
                 current_link_xyz,
-                current_quaternion,
+                goal_orientation,
                 frozen_target,
                 goal_standoff_m,
-                float(self._param("tip_offset_m")),
+                0.0 if link6_hover_mode else float(self._param("tip_offset_m")),
                 horizontal_limit_m,
                 vertical_limit_m,
                 float(self._param("lateral_deadband_m")),
                 allow_zero_standoff=dummy_mode,
+                approach_axis=approach_axis,
             )
         except ValueError as error:
             reason = "POSITION_CORRECTION_TOO_LARGE"
@@ -861,23 +971,38 @@ class PiperPulseAlign(MoveItDemoBase):
             self._set_blocker("TARGET_ALREADY_PASSED", "probe tip is beyond the visual target")
             self._summary(False, "TARGET_ALREADY_PASSED")
             return False
-        if not self._capture_local_pressure_baseline():
-            self._set_blocker("PRESSURE_UNSTABLE")
-            self._summary(False, "PRESSURE_UNSTABLE")
-            return False
+        if self._pressure_monitor_required():
+            if not self._capture_local_pressure_baseline():
+                self._set_blocker("PRESSURE_UNSTABLE")
+                self._summary(False, "PRESSURE_UNSTABLE")
+                return False
+        else:
+            self._gate(
+                "local_pressure_baseline", "NOT_REQUIRED", None,
+                "target remains 100 mm forward along Link6 local +Z",
+            )
+            self._gate(
+                "pressure_stable", "NOT_REQUIRED", None,
+                "pressure tool is not installed",
+            )
         if not self._wait_for_target_recovery():
             self._summary(False, self._primary_blocker)
             return False
-        self._transition(PlanningState.ARM_AXIS_ALIGN, "INPUT_GATES_PASS")
-        self._run_axis_alignment_dry_run(
-            current_quaternion, current[-1], target
-        )
-        arm_direction, arm_reason = self._arm_direction_in_planning_frame()
-        if arm_direction is None:
-            self._set_blocker("ARM_DIRECTION_STALE", arm_reason)
-            self._transition(PlanningState.WAITING_FOR_INPUT, "ARM_DIRECTION_STALE")
-            self._summary(False, "ARM_DIRECTION_STALE")
-            return False
+        arm_direction_required = bool(self._param("arm_direction_required"))
+        arm_direction = None
+        if arm_direction_required:
+            self._transition(PlanningState.ARM_AXIS_ALIGN, "INPUT_GATES_PASS")
+            self._run_axis_alignment_dry_run(
+                current_quaternion, current[-1], target
+            )
+            arm_direction, arm_reason = self._arm_direction_in_planning_frame()
+            if arm_direction is None:
+                self._set_blocker("ARM_DIRECTION_STALE", arm_reason)
+                self._transition(PlanningState.WAITING_FOR_INPUT, "ARM_DIRECTION_STALE")
+                self._summary(False, "ARM_DIRECTION_STALE")
+                return False
+        else:
+            self._context["arm_direction"] = "NOT_REQUIRED"
         self._record_geometry(
             plan, current_link_xyz, current_quaternion, frozen_target, arm_direction
         )
@@ -926,31 +1051,80 @@ class PiperPulseAlign(MoveItDemoBase):
             self._gate("ik_hover", "NOT_APPLICABLE", None, "direct Cartesian path")
             self._gate("collision_hover", "NOT_APPLICABLE", None, "direct Cartesian path")
         else:
-            hover_pose = self._pose(plan.hover_link, plan.orientation)
-            hover_joints = self._valid_ik(
-                hover_pose, current, "current-clearance lateral waypoint"
+            hover_pose, hover_joints, hover_orientation = self._select_hover_ik(
+                plan.hover_link, plan.orientation, current, link6_hover_mode,
+                "current-clearance lateral waypoint", "hover_ik_attempts",
             )
             if hover_joints is None:
-                reason = self._context.get("last_ik_reason", "HOVER_IK_FAILED")
-                reason = "HOVER_COLLISION" if reason == "COLLISION" else "HOVER_IK_FAILED"
-                self._set_blocker(reason)
-                self._transition(PlanningState.ERROR)
-                self._summary(False, reason)
-                return False
-            pre_hover_waypoints = (hover_pose.pose,)
-            self._gate("ik_hover", "PASS", hover_joints, "valid joint-limit solution")
-            self._gate("collision_hover", "PASS", "collision-free", "required")
+                direct_clearance = point_to_segment_distance(
+                    plan.target, plan.current_tip, plan.nominal_precontact_tip
+                )
+                direct_fallback_safe = (
+                    link6_hover_mode and direct_clearance + 1e-6 >= goal_standoff_m
+                )
+                _direct_pose = None
+                direct_joints = None
+                direct_orientation = plan.orientation
+                if direct_fallback_safe:
+                    _direct_pose, direct_joints, direct_orientation = self._select_hover_ik(
+                        plan.nominal_precontact_link, plan.orientation, current, True,
+                        "direct Link6 hover endpoint", "direct_ik_attempts",
+                    )
+                if direct_joints is None:
+                    reason = self._context.get("last_ik_reason", "HOVER_IK_FAILED")
+                    reason = (
+                        "HOVER_COLLISION" if reason == "COLLISION" else "HOVER_IK_FAILED"
+                    )
+                    self._context["direct_fallback_minimum_clearance_mm"] = (
+                        direct_clearance * 1000.0
+                    )
+                    self._set_blocker(reason)
+                    self._transition(PlanningState.ERROR)
+                    self._summary(False, reason)
+                    return False
+                direct_precontact = True
+                hover_joints = current
+                plan = replace(plan, orientation=direct_orientation)
+                self._context.update({
+                    "direct_hover_fallback": True,
+                    "direct_fallback_minimum_clearance_mm": direct_clearance * 1000.0,
+                })
+                self._gate(
+                    "ik_hover", "NOT_APPLICABLE", None,
+                    "current-clearance waypoint unreachable; guarded direct path selected",
+                )
+                self._gate(
+                    "collision_hover", "NOT_APPLICABLE", None,
+                    "direct endpoint IK and collision check passed",
+                )
+            else:
+                if hover_orientation != plan.orientation:
+                    plan = replace(plan, orientation=hover_orientation)
+                pre_hover_waypoints = (hover_pose.pose,)
+                self._gate("ik_hover", "PASS", hover_joints, "valid joint-limit solution")
+                self._gate("collision_hover", "PASS", "collision-free", "required")
+            self._context["goal_Link6_orientation_xyzw"] = plan.orientation
         self._transition(
             PlanningState.PRECONTACT_READY,
             "DIRECT_PATH_READY" if direct_precontact else "HOVER_VALID",
         )
-        candidates = approach_candidates(
-            plan, arm_direction,
-            float(self._param("maximum_approach_deviation_deg")),
-            float(self._param("maximum_approach_tangent_shift_m")),
+        candidates = (
+            approach_candidates(
+                plan, arm_direction,
+                float(self._param("maximum_approach_deviation_deg")),
+                float(self._param("maximum_approach_tangent_shift_m")),
+            )
+            if arm_direction_required else
+            (ApproachCandidate(
+                plan.nominal_precontact_tip,
+                plan.nominal_precontact_link,
+                plan.nominal_approach,
+                0.0,
+                0.0,
+            ),)
         )
-        if dummy_mode:
-            # Only the nominal candidate ends exactly at the visual target.
+        if dummy_mode or link6_hover_mode:
+            # Only the nominal candidate ends exactly at the requested target/standoff.
             candidates = candidates[:1]
         selected_trajectory = None
 
@@ -1090,7 +1264,8 @@ class PiperPulseAlign(MoveItDemoBase):
         if not dummy_mode:
             self._precontact_publisher.publish(precontact)
         self.node.get_logger().info(
-            ("DUMMY_TARGET_POSITIONING: " if dummy_mode else "PRECONTACT_POSITIONING: ") +
+            ("LINK6_HOVER_POSITIONING: " if link6_hover_mode else
+             "DUMMY_TARGET_POSITIONING: " if dummy_mode else "PRECONTACT_POSITIONING: ") +
             f"current_tip={plan.current_tip}, target={plan.target}, "
             f"lateral_offset={plan.lateral_offset}, "
             f"height/approach_offset={plan.clearance_m:.4f} m, "
@@ -1141,11 +1316,14 @@ class PiperPulseAlign(MoveItDemoBase):
             self._summary(False, self._primary_blocker)
             return False
         self._context["motion_sent"] = True
+        self._motion_sent_ever = True
         self._transition(PlanningState.PRECONTACT_EXECUTING, "ALL_HARD_GATES_PASS")
         self.node.get_logger().warn(
             "DUMMY-ONLY: executing collision-checked path no farther than the visual target; "
             "pressure anomaly cancels motion; no force control is available"
             if dummy_mode else
+            "executing collision-checked bare-Link6 hover path; pressure monitoring is not required"
+            if link6_hover_mode else
             "executing collision-checked pre-contact path with live pressure cancellation"
         )
         execution_timeout = (
@@ -1173,6 +1351,8 @@ class PiperPulseAlign(MoveItDemoBase):
         self.node.get_logger().info(
             "DUMMY_TARGET_REACHED: planned visual endpoint reached without pressure trigger"
             if dummy_mode else
+            "PRECONTACT_REACHED: Link6 is 100 mm above the local skin plane along its normal"
+            if link6_hover_mode else
             "PRECONTACT_REACHED: Piper-H stopped at the configured standoff"
         )
         self._summary(True, "NONE")
@@ -1186,7 +1366,8 @@ class PiperPulseAlign(MoveItDemoBase):
         horizontal_correction, vertical_correction = horizontal_vertical_displacement(
             plan.nominal_precontact_link, current_link_xyz
         )
-        tool_z = plan.nominal_approach
+        tool_z = rotate_vector(plan.orientation, (0.0, 0.0, 1.0))
+        positioning_axis = plan.nominal_approach
         direction = arm_direction
         angle = None
         if direction is not None:
@@ -1196,9 +1377,16 @@ class PiperPulseAlign(MoveItDemoBase):
             "Link6_position_xyz": current_link_xyz,
             "Link6_orientation_xyzw": current_quaternion,
             "Link6_local_plus_z_planning_frame": tool_z,
-            "nominal_approach_xyz": plan.nominal_approach,
+            "nominal_approach_xyz": positioning_axis,
             "current_tip_xyz": plan.current_tip,
             "target_xyz": target,
+            "surface_point_base": target,
+            "surface_normal_base": positioning_axis,
+            "standoff_m": (
+                0.0 if bool(self._param("dummy_contact_mode"))
+                else float(self._param("standoff_m"))
+            ),
+            "final_Link6_goal": plan.nominal_precontact_link,
             "target_minus_tip_xyz": target_minus_tip,
             "clearance_mm": plan.clearance_m * 1000.0,
             "required_standoff_mm": (
@@ -1220,7 +1408,9 @@ class PiperPulseAlign(MoveItDemoBase):
             "precontact_tip_xyz": plan.nominal_precontact_tip,
             "approach_distance_mm": plan.approach_distance_m * 1000.0,
             "tool_arm_angle_deg": angle,
-            "target_axis_dot_m": sum(a * b for a, b in zip(target_minus_tip, tool_z)),
+            "target_axis_dot_m": sum(
+                a * b for a, b in zip(target_minus_tip, positioning_axis)
+            ),
         })
         self._gate(
             "clearance", "PASS",
@@ -1236,8 +1426,15 @@ class PiperPulseAlign(MoveItDemoBase):
             "[GEOMETRY] "
             f"plan_id={self._diagnostics.plan_id} clearance={plan.clearance_m * 1000.0:.1f}mm "
             f"lateral={lateral_distance * 1000.0:.1f}mm "
-            f"tool+Z={tool_z} arm_direction={direction} tool/arm_angle={angle}deg "
+            f"tool+Z={tool_z} positioning_axis={positioning_axis} "
+            f"arm_direction={direction} tool/arm_angle={angle}deg "
             f"dot(target-current_tip,nominal_approach)={self._context['target_axis_dot_m']:.4f}m"
+        )
+        self.node.get_logger().info(
+            "[HAND LINK6 GOAL] "
+            f"surface_point_base={target} surface_normal_base={positioning_axis} "
+            f"standoff={self._context['standoff_m']:.4f}m "
+            f"final_Link6_goal={plan.nominal_precontact_link}"
         )
         self._emit("gate_snapshot", snapshot=self.build_diagnostic_snapshot())
 
@@ -1257,7 +1454,9 @@ class PiperPulseAlign(MoveItDemoBase):
     def _summary(self, success: bool, reason: str) -> None:
         snapshot = self.build_diagnostic_snapshot()
         execute_motion = bool(self._context.get("execute_motion", False))
-        motion_sent = bool(self._context.get("motion_sent", False))
+        motion_sent = bool(
+            self._context.get("motion_sent", False) or self._motion_sent_ever
+        )
         result = (
             self._planning_state.value
             if success and self._planning_state in (
@@ -1375,6 +1574,49 @@ class PiperPulseAlign(MoveItDemoBase):
         self.node.get_logger().info(f"IK valid and collision-free: {label}")
         return joints
 
+    def _select_hover_ik(
+        self, position, orientation, seed, search_free_roll: bool,
+        label: str = "current-clearance lateral waypoint",
+        attempts_key: str = "hover_ik_attempts",
+    ):
+        """Find a collision-free hover IK, using Link6's unconstrained roll DOF."""
+        configured_angles = (
+            self._param("link6_hover_roll_search_deg") if search_free_roll else [0.0]
+        )
+        angles = []
+        for value in configured_angles:
+            angle = float(value)
+            if math.isfinite(angle) and not any(abs(angle - item) < 1e-9 for item in angles):
+                angles.append(angle)
+        if not angles or all(abs(angle) >= 1e-9 for angle in angles):
+            angles.insert(0, 0.0)
+
+        attempts = []
+        for angle in angles:
+            candidate_orientation = quaternion_roll_about_local_z(orientation, angle)
+            pose = self._pose(position, candidate_orientation)
+            joints = self._valid_ik(
+                pose,
+                seed,
+                f"{label} (Link6 roll {angle:+.1f} deg)",
+                warn_only=search_free_roll,
+            )
+            attempts.append({
+                "roll_deg": angle,
+                "result": "PASS" if joints is not None else "FAIL",
+                "reason": self._context.get("last_ik_reason", "IK_FAILED"),
+                "diagnostic": dict(self._context.get("last_ik_diagnostic", {})),
+            })
+            if joints is not None:
+                self._context["hover_roll_deg"] = angle
+                self._context[attempts_key] = attempts
+                self.node.get_logger().info(
+                    f"Link6 hover selected equivalent roll {angle:+.1f} deg"
+                )
+                return pose, joints, candidate_orientation
+        self._context[attempts_key] = attempts
+        return None, None, orientation
+
     def _publish_staged_markers(self, plan, selected, header) -> None:
         markers = []
 
@@ -1451,6 +1693,9 @@ class PiperPulseAlign(MoveItDemoBase):
 
     def _wait_for_preflight(self) -> bool:
         deadline = time.monotonic() + float(self._param("target_timeout_sec"))
+        pressure_required = self._pressure_monitor_required()
+        arm_direction_required = bool(self._param("arm_direction_required"))
+        surface_normal_required = bool(self._param("link6_hover_mode"))
         self._transition(PlanningState.WAITING_FOR_INPUT, "PREFLIGHT_STARTED")
         while rclpy.ok() and time.monotonic() < deadline:
             self._spin_inputs(0.05)
@@ -1481,12 +1726,18 @@ class PiperPulseAlign(MoveItDemoBase):
                 )
                 target = self._target_filter.status(now)
             direction = self._direction_filter.status()
+            surface_normal = self._surface_normal_filter.status()
             pressure_graph = self._pressure_graph_snapshot()
             pressure_unique = pressure_graph["pressure_source_unique"]
             direction_fresh = (
                 self._latest_arm_direction is not None
                 and now - self._arm_direction_received
                 <= float(self._param("arm_direction_max_age_sec"))
+            )
+            surface_normal_fresh = (
+                self._latest_surface_normal is not None
+                and now - self._surface_normal_received
+                <= float(self._param("surface_normal_max_age_sec"))
             )
             self._gate("arm_selected", "PASS" if self._selected_robot == "piperh" else "WAIT",
                        self._selected_robot, "piperh")
@@ -1514,31 +1765,64 @@ class PiperPulseAlign(MoveItDemoBase):
             self._gate("target_drift", drift_result, target.drift_m * 1000.0,
                        {"soft_mm": float(self._param("target_soft_drift_m")) * 1000.0,
                         "hard_mm": float(self._param("target_hard_drift_m")) * 1000.0})
-            self._gate("arm_direction_received", "PASS" if self._latest_arm_direction else "WAIT")
-            self._gate("arm_direction_fresh", "PASS" if direction_fresh else "WAIT",
+            self._gate("arm_direction_received", "NOT_REQUIRED" if not arm_direction_required else
+                       "PASS" if self._latest_arm_direction else "WAIT")
+            self._gate("arm_direction_fresh", "NOT_REQUIRED" if not arm_direction_required else
+                       "PASS" if direction_fresh else "WAIT",
                        (now - self._arm_direction_received) * 1000.0 if self._latest_arm_direction else None,
                        f"<={float(self._param('arm_direction_max_age_sec')) * 1000.0:.0f} ms")
-            self._gate("arm_direction_stable", "PASS" if direction.stable else "WAIT",
+            self._gate("arm_direction_stable", "NOT_REQUIRED" if not arm_direction_required else
+                       "PASS" if direction.stable else "WAIT",
                        {"jitter_deg": direction.jitter_deg,
                         "samples": direction.sample_count},
                        {"jitter_deg": float(self._param("arm_direction_stable_deg")),
                         "min_samples": int(self._param("arm_direction_stable_min_samples")),
                         "window_ms": float(self._param("arm_direction_filter_window_sec")) * 1000.0,
                         "required_duration_ms": 0.0})
-            self._gate("pressure_source_unique", "PASS" if pressure_unique else "WAIT",
+            self._gate(
+                "surface_normal_received",
+                "NOT_REQUIRED" if not surface_normal_required else
+                "PASS" if self._latest_surface_normal else "WAIT",
+            )
+            self._gate(
+                "surface_normal_fresh",
+                "NOT_REQUIRED" if not surface_normal_required else
+                "PASS" if surface_normal_fresh else "WAIT",
+                (now - self._surface_normal_received) * 1000.0
+                if self._latest_surface_normal else None,
+                f"<={float(self._param('surface_normal_max_age_sec')) * 1000.0:.0f} ms",
+            )
+            self._gate(
+                "surface_normal_stable",
+                "NOT_REQUIRED" if not surface_normal_required else
+                "PASS" if surface_normal.stable else "WAIT",
+                {"jitter_deg": surface_normal.jitter_deg,
+                 "samples": surface_normal.sample_count},
+                {"jitter_deg": float(self._param("surface_normal_stable_deg")),
+                 "min_samples": int(self._param("surface_normal_stable_min_samples"))},
+            )
+            pressure_gate = "PASS" if pressure_unique else "WAIT"
+            if not pressure_required:
+                pressure_gate = "NOT_REQUIRED"
+            self._gate("pressure_source_unique", pressure_gate,
                        pressure_graph, "exactly 1 publisher on every pressure/status topic")
-            self._gate("pressure_connected", "PASS" if self._serial_connected and pressure_unique else "WAIT",
+            self._gate("pressure_connected", "NOT_REQUIRED" if not pressure_required else
+                       "PASS" if self._serial_connected and pressure_unique else "WAIT",
                        self._serial_connected, True,
                        "requires unique pressure/status publishers")
-            self._gate("pressure_zeroed", "PASS" if self._zero_calibrated and self._serial_connected and pressure_unique else "WAIT",
+            self._gate("pressure_zeroed", "NOT_REQUIRED" if not pressure_required else
+                       "PASS" if self._zero_calibrated and self._serial_connected and pressure_unique else "WAIT",
                        self._zero_calibrated, True,
                        "device zero flag; local pressure baseline is a separate later gate")
             pressure_fresh = all(channel in self._pressure_received and now - self._pressure_received[channel] <= float(self._param("maximum_pressure_age_sec")) for channel in ("s1", "s2", "s3"))
-            self._gate("pressure_fresh", "PASS" if pressure_fresh and pressure_unique else "WAIT",
+            self._gate("pressure_fresh", "NOT_REQUIRED" if not pressure_required else
+                       "PASS" if pressure_fresh and pressure_unique else "WAIT",
                        self._pressure_snapshot(now), f"<={float(self._param('maximum_pressure_age_sec')) * 1000.0:.0f} ms")
-            self._gate("local_pressure_baseline", "PASS" if self._local_pressure_baseline is not None else "NOT_CHECKED",
+            self._gate("local_pressure_baseline", "NOT_REQUIRED" if not pressure_required else
+                       "PASS" if self._local_pressure_baseline is not None else "NOT_CHECKED",
                        self._local_pressure_baseline, "non-contact local baseline captured after preflight")
-            self._gate("pressure_stable", "NOT_CHECKED" if self._local_pressure_baseline is None else
+            self._gate("pressure_stable", "NOT_REQUIRED" if not pressure_required else
+                       "NOT_CHECKED" if self._local_pressure_baseline is None else
                        "FAIL" if any(self._pressure_filters[c].status(now).abort for c in ("s1", "s2", "s3")) else "PASS",
                        self._pressure_snapshot(now).get("max_delta_pa"),
                        {"delta_pa": float(self._param("pressure_precontact_delta_pa")),
@@ -1586,34 +1870,46 @@ class PiperPulseAlign(MoveItDemoBase):
                     f"{int(self._param('target_stable_min_samples'))} "
                     f"acquisition={target.acquisition_state}; no FPS/duration gate",
                 )
-            elif not self._latest_arm_direction:
+            elif arm_direction_required and not self._latest_arm_direction:
                 self._set_blocker("WAIT_ARM_DIRECTION")
-            elif not direction_fresh:
+            elif arm_direction_required and not direction_fresh:
                 self._set_blocker("ARM_DIRECTION_STALE")
-            elif not direction.stable:
+            elif arm_direction_required and not direction.stable:
                 self._set_blocker("ARM_DIRECTION_UNSTABLE",
                                   f"jitter={direction.jitter_deg:.2f}/"
                                   f"{float(self._param('arm_direction_stable_deg')):.2f}deg "
                                   f"samples={direction.sample_count}/"
                                   f"{int(self._param('arm_direction_stable_min_samples'))}; "
                                   "no duration gate")
+            elif surface_normal_required and not self._latest_surface_normal:
+                self._set_blocker("WAIT_SURFACE_NORMAL")
+            elif surface_normal_required and not surface_normal_fresh:
+                self._set_blocker("SURFACE_NORMAL_STALE")
+            elif surface_normal_required and not surface_normal.stable:
+                self._set_blocker(
+                    "SURFACE_NORMAL_UNSTABLE",
+                    f"jitter={surface_normal.jitter_deg:.2f}/"
+                    f"{float(self._param('surface_normal_stable_deg')):.2f}deg "
+                    f"samples={surface_normal.sample_count}/"
+                    f"{int(self._param('surface_normal_stable_min_samples'))}",
+                )
             elif self._selected_robot != "piperh":
                 self._set_blocker("WRONG_ARM_SELECTED")
             elif not self._xbox_known or not self._xbox_locked:
                 self._set_blocker("XBOX_NOT_LOCKED")
-            elif not pressure_unique:
+            elif pressure_required and not pressure_unique:
                 self._set_blocker(
                     "PRESSURE_DUPLICATE_PUBLISHERS",
                     f"status={pressure_graph['pressure_status_publisher_count']} "
                     f"data={pressure_graph['pressure_data_publisher_counts']}",
                 )
-            elif not self._serial_connected:
+            elif pressure_required and not self._serial_connected:
                 self._set_blocker("PRESSURE_NOT_CONNECTED")
-            elif not self._zero_calibrated:
+            elif pressure_required and not self._zero_calibrated:
                 self._set_blocker("PRESSURE_NOT_ZEROED")
-            elif not pressure_fresh:
+            elif pressure_required and not pressure_fresh:
                 self._set_blocker("PRESSURE_STALE")
-            elif not self._pressure_safe():
+            elif pressure_required and not self._pressure_safe():
                 self._set_blocker("PRESSURE_DELTA_ABORT")
             else:
                 self._primary_blocker = "NONE"
@@ -1622,7 +1918,8 @@ class PiperPulseAlign(MoveItDemoBase):
                 self._emit("gate_snapshot", snapshot=self.build_diagnostic_snapshot())
                 return True
             if (
-                target_fresh and target.stable and direction_fresh and direction.stable
+                target_fresh and target.stable
+                and (not arm_direction_required or (direction_fresh and direction.stable))
                 and self._xbox_known and self._xbox_locked
                 and self._selected_robot == "piperh" and self._serial_connected
                 and self._zero_calibrated and pressure_unique and self._pressure_safe()
@@ -1760,6 +2057,63 @@ class PiperPulseAlign(MoveItDemoBase):
         vector = transformed_filtered.vector
         return (vector.x, vector.y, vector.z), "arm_direction is ready"
 
+    def _surface_normal_in_planning_frame(self) -> tuple[tuple[float, float, float] | None, str]:
+        message = self._latest_surface_normal
+        if message is None:
+            return None, "surface normal has not been received"
+        if time.monotonic() - self._surface_normal_received > float(
+            self._param("surface_normal_max_age_sec")
+        ):
+            return None, "surface normal is stale"
+        status = self._surface_normal_filter.status()
+        if not status.stable or status.filtered is None:
+            return None, (
+                f"surface normal is unstable: jitter={status.jitter_deg:.2f}deg "
+                f"samples={status.sample_count}"
+            )
+        planning_frame = str(self._param("planning_frame"))
+        if message.header.frame_id == planning_frame:
+            return status.filtered, "surface normal is ready"
+        try:
+            transform = self._tf_buffer.lookup_transform(
+                planning_frame, message.header.frame_id,
+                Time.from_msg(message.header.stamp),
+                timeout=Duration(seconds=float(self._param("tf_timeout_sec"))),
+            )
+            filtered_message = Vector3Stamped()
+            filtered_message.header = message.header
+            filtered_message.vector.x, filtered_message.vector.y, filtered_message.vector.z = (
+                status.filtered
+            )
+            transformed = do_transform_vector3(filtered_message, transform)
+        except TransformException as error:
+            return None, f"surface normal TF unavailable: {error}"
+        vector = transformed.vector
+        return (vector.x, vector.y, vector.z), "surface normal is ready"
+
+    def _wait_for_surface_normal_in_planning_frame(
+        self,
+    ) -> tuple[tuple[float, float, float] | None, str]:
+        """Drain sensor callbacks until the short normal window is stable again.
+
+        TF discovery and other blocking pre-planning checks can outlive the
+        0.8-second direction window.  A valid normal may therefore have passed
+        preflight but aged down to one queued sample before geometry is built.
+        Wait briefly for the live stream instead of misreporting that race as
+        an unavailable surface normal.
+        """
+        timeout = min(2.0, max(0.2, float(self._param("target_timeout_sec"))))
+        deadline = time.monotonic() + timeout
+        last_reason = "surface normal has not been received"
+        while rclpy.ok() and time.monotonic() < deadline:
+            normal, last_reason = self._surface_normal_in_planning_frame()
+            if normal is not None:
+                return normal, last_reason
+            if self._attempt_invalidated:
+                return None, "target moved while waiting for surface normal"
+            self._spin_inputs(0.05)
+        return None, last_reason
+
     def _run_axis_alignment_dry_run(
         self,
         link6_quaternion: tuple[float, float, float, float],
@@ -1892,8 +2246,10 @@ class PiperPulseAlign(MoveItDemoBase):
         last_error = None
         while rclpy.ok():
             try:
-                # A blocking lookup on this node starves its own TF subscription.
-                # Let the executor receive both /tf and /tf_static between tries.
+                # Latest TF is permitted here only for the robot's *current*
+                # execution-start Link6 pose. The visual target itself was
+                # transformed earlier at its exact RGB acquisition timestamp.
+                # Let the executor receive /tf between non-blocking retries.
                 transform = self._tf_buffer.lookup_transform(
                     target_frame, source_frame, Time(), timeout=Duration(seconds=0.0),
                 )
@@ -1924,8 +2280,9 @@ class PiperPulseAlign(MoveItDemoBase):
         return None
 
     def _pre_execution_safe(self, frozen_target) -> bool:
-        pressure_graph = self._pressure_graph_snapshot()
-        if not pressure_graph["pressure_source_unique"]:
+        pressure_required = self._pressure_monitor_required()
+        pressure_graph = self._pressure_graph_snapshot() if pressure_required else None
+        if pressure_required and not pressure_graph["pressure_source_unique"]:
             self._set_blocker("PRESSURE_DUPLICATE_PUBLISHERS")
             return False
         if not self._xbox_known or not self._xbox_locked:
@@ -1935,16 +2292,21 @@ class PiperPulseAlign(MoveItDemoBase):
         if self._selected_robot != "piperh":
             self._set_blocker("ARM_NOT_SELECTED", self._selected_robot or "unknown")
             return False
-        if not self._serial_connected:
+        if pressure_required and not self._serial_connected:
             self._set_blocker("PRESSURE_DISCONNECTED")
             return False
-        if not self._zero_calibrated:
+        if pressure_required and not self._zero_calibrated:
             self._set_blocker("PRESSURE_NOT_ZEROED")
             return False
-        if self._local_pressure_baseline is None:
+        if pressure_required and self._local_pressure_baseline is None:
             self._set_blocker("PRESSURE_BASELINE_MISSING")
             return False
         now = time.monotonic()
+        if bool(self._param("link6_hover_mode")):
+            blocker = self._pre_execution_surface_normal_blocker(now)
+            if blocker is not None:
+                self._set_blocker(blocker, "surface normal changed before execution")
+                return False
         joints_complete = all(
             name in self._latest_joint_positions for name in self.joint_names
         )
@@ -1960,7 +2322,7 @@ class PiperPulseAlign(MoveItDemoBase):
             self._set_blocker("JOINT_FEEDBACK_STALE")
             return False
         pressure_deadline = time.monotonic() + float(self._param("target_timeout_sec"))
-        while not self._pressure_safe():
+        while pressure_required and not self._pressure_safe():
             if not self._pressure_graph_snapshot()["pressure_source_unique"]:
                 self._set_blocker("PRESSURE_DUPLICATE_PUBLISHERS")
                 return False
@@ -2068,15 +2430,85 @@ class PiperPulseAlign(MoveItDemoBase):
         self._blocking_reasons = []
         return True
 
+    def _pre_execution_surface_normal_blocker(self, now: float) -> str | None:
+        """Strictly validate the live surface normal before sending motion."""
+        if (
+            self._latest_surface_normal is None
+            or now - self._surface_normal_received
+            > float(self._param("surface_normal_max_age_sec"))
+        ):
+            return "SURFACE_NORMAL_STALE"
+        status = self._surface_normal_filter.status()
+        if not status.stable or status.filtered is None:
+            return "SURFACE_NORMAL_UNSTABLE"
+        planned = self._context.get("surface_normal_planning_frame")
+        if planned is not None:
+            dot_value = max(-1.0, min(1.0, sum(
+                a * b for a, b in zip(planned, status.filtered)
+            )))
+            if math.degrees(math.acos(dot_value)) > float(
+                self._param("surface_normal_stable_deg")
+            ):
+                return "SURFACE_NORMAL_MOVED"
+        self._surface_normal_drift_since = None
+        return None
+
     def _execution_safety_blocker(self, now: float) -> str | None:
         """Return the live interlock that requires cancelling active motion."""
-        if bool(self._param("dummy_contact_mode")):
+        link6_hover_mode = bool(self._param("link6_hover_mode"))
+        freeze_link6_visual = (
+            link6_hover_mode
+            and bool(self._param("link6_hover_continue_on_visual_dropout"))
+        )
+        if bool(self._param("dummy_contact_mode")) or (
+            link6_hover_mode and not freeze_link6_visual
+        ):
             if self._attempt_invalidated:
                 return "TARGET_MOVED"
         if not self._xbox_known or not self._xbox_locked:
             return "XBOX_NOT_LOCKED"
         if self._selected_robot != "piperh":
             return "ARM_NOT_SELECTED"
+        if link6_hover_mode and not freeze_link6_visual:
+            continue_on_dropout = bool(self._param(
+                "link6_hover_continue_on_visual_dropout"
+            ))
+            normal_fresh = (
+                self._latest_surface_normal is not None
+                and now - self._surface_normal_received
+                <= float(self._param("surface_normal_execution_dropout_grace_sec"))
+            )
+            # The normal and 10 cm endpoint are latched before motion.  Because
+            # the camera is mounted on Link6, moving to that endpoint can move
+            # the target out of view.  Missing observations are therefore not
+            # evidence that the plane moved; only a fresh, reliable deviation
+            # may cancel an active trajectory.
+            if not normal_fresh and not continue_on_dropout:
+                return "SURFACE_NORMAL_STALE"
+            status = self._surface_normal_filter.status() if normal_fresh else None
+            if status is None or not status.stable or status.filtered is None:
+                self._surface_normal_drift_since = None
+            else:
+                planned = self._context.get("surface_normal_planning_frame")
+                if planned is not None:
+                    dot_value = max(-1.0, min(1.0, sum(
+                        a * b for a, b in zip(planned, status.filtered)
+                    )))
+                    angle_deg = math.degrees(math.acos(dot_value))
+                    self._context["surface_normal_execution_deviation_deg"] = angle_deg
+                    if angle_deg > float(self._param(
+                        "surface_normal_execution_max_deviation_deg"
+                    )):
+                        if self._surface_normal_drift_since is None:
+                            self._surface_normal_drift_since = now
+                        elif now - self._surface_normal_drift_since >= float(self._param(
+                            "surface_normal_execution_hold_sec"
+                        )):
+                            return "SURFACE_NORMAL_MOVED"
+                    else:
+                        self._surface_normal_drift_since = None
+        if not self._pressure_monitor_required():
+            return None
         if not self._serial_connected:
             return "PRESSURE_DISCONNECTED"
         if not self._zero_calibrated:
@@ -2123,7 +2555,7 @@ class PiperPulseAlign(MoveItDemoBase):
         while rclpy.ok() and not result_future.done():
             now = time.monotonic()
             blocker = self._execution_safety_blocker(now)
-            if blocker is None and now >= next_graph_check:
+            if blocker is None and self._pressure_monitor_required() and now >= next_graph_check:
                 next_graph_check = now + 0.25
                 if not self._pressure_graph_snapshot()["pressure_source_unique"]:
                     blocker = "PRESSURE_DUPLICATE_PUBLISHERS"

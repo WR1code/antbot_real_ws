@@ -51,6 +51,24 @@ def translation_within_axis_limits(
     )
 
 
+def point_to_segment_distance(
+    point: Vector3, segment_start: Vector3, segment_end: Vector3
+) -> float:
+    """Return the shortest Euclidean distance from a point to a closed segment."""
+    direction = subtract(segment_end, segment_start)
+    length_squared = sum(value * value for value in direction)
+    if not math.isfinite(length_squared):
+        raise ValueError("segment coordinates are not finite")
+    if length_squared < 1e-12:
+        return norm(subtract(point, segment_start))
+    projection = sum(
+        offset * axis for offset, axis in zip(subtract(point, segment_start), direction)
+    ) / length_squared
+    projection = max(0.0, min(1.0, projection))
+    closest = add(segment_start, scale(direction, projection))
+    return norm(subtract(point, closest))
+
+
 def normalize(vector: Vector3) -> Vector3:
     length = norm(vector)
     if not math.isfinite(length) or length < 1e-6:
@@ -88,6 +106,59 @@ def rotate_vector(quaternion: Quaternion, vector: Vector3) -> Vector3:
     )
 
 
+def quaternion_align_local_z(
+    current_orientation: Quaternion, desired_world_direction: Vector3
+) -> Quaternion:
+    """Minimally rotate an attitude so local blue +Z follows a world vector."""
+    desired = normalize(desired_world_direction)
+    current_z = normalize(rotate_vector(current_orientation, (0.0, 0.0, 1.0)))
+    dot_value = max(-1.0, min(1.0, sum(a * b for a, b in zip(current_z, desired))))
+    cross = (
+        current_z[1] * desired[2] - current_z[2] * desired[1],
+        current_z[2] * desired[0] - current_z[0] * desired[2],
+        current_z[0] * desired[1] - current_z[1] * desired[0],
+    )
+    if dot_value < -0.999999:
+        axis = normalize(rotate_vector(current_orientation, (1.0, 0.0, 0.0)))
+        delta = (axis[0], axis[1], axis[2], 0.0)
+    else:
+        delta = (cross[0], cross[1], cross[2], 1.0 + dot_value)
+        length = math.sqrt(sum(value * value for value in delta))
+        delta = tuple(value / length for value in delta)
+    dx, dy, dz, dw = delta
+    qx, qy, qz, qw = current_orientation
+    result = (
+        dw * qx + dx * qw + dy * qz - dz * qy,
+        dw * qy - dx * qz + dy * qw + dz * qx,
+        dw * qz + dx * qy - dy * qx + dz * qw,
+        dw * qw - dx * qx - dy * qy - dz * qz,
+    )
+    length = math.sqrt(sum(value * value for value in result))
+    return tuple(value / length for value in result)
+
+
+def quaternion_roll_about_local_z(
+    orientation: Quaternion, angle_deg: float
+) -> Quaternion:
+    """Apply a roll about local +Z without changing its world direction."""
+    qx, qy, qz, qw = orientation
+    qnorm = math.sqrt(qx * qx + qy * qy + qz * qz + qw * qw)
+    if not math.isfinite(qnorm) or qnorm < 1e-9 or not math.isfinite(angle_deg):
+        raise ValueError("tool orientation or local-Z roll is invalid")
+    qx, qy, qz, qw = qx / qnorm, qy / qnorm, qz / qnorm, qw / qnorm
+    half_angle = math.radians(angle_deg) * 0.5
+    sin_half = math.sin(half_angle)
+    cos_half = math.cos(half_angle)
+    result = (
+        qx * cos_half + qy * sin_half,
+        qy * cos_half - qx * sin_half,
+        qz * cos_half + qw * sin_half,
+        qw * cos_half - qz * sin_half,
+    )
+    length = math.sqrt(sum(value * value for value in result))
+    return tuple(value / length for value in result)
+
+
 def piper_precontact_link_pose(
     current_link_origin: Vector3,
     current_orientation: Quaternion,
@@ -97,13 +168,23 @@ def piper_precontact_link_pose(
     maximum_horizontal_translation_m: float,
     maximum_vertical_translation_m: float,
     allow_zero_standoff: bool = False,
+    approach_axis: Vector3 | None = None,
 ) -> tuple[Vector3, Quaternion, Vector3, float]:
-    """Preserve J6 orientation and translate the axial Piper probe to standoff."""
+    """Preserve J6 orientation and translate the selected endpoint to standoff.
+
+    ``approach_axis`` is expressed in the planning frame.  When omitted, the
+    installed probe's Link6-local +Z axis is used.  A zero ``tip_offset_m`` is
+    valid for a bare Link6 flange.
+    """
     if standoff_m < 0.0 or (standoff_m < 0.02 and not (allow_zero_standoff and standoff_m == 0.0)):
         raise ValueError("standoff_m must be at least 0.02 m")
-    if tip_offset_m <= 0.0:
-        raise ValueError("tip_offset_m must be positive")
-    tool_axis = normalize(rotate_vector(current_orientation, (0.0, 0.0, 1.0)))
+    if tip_offset_m < 0.0:
+        raise ValueError("tip_offset_m cannot be negative")
+    tool_axis = normalize(
+        approach_axis
+        if approach_axis is not None
+        else rotate_vector(current_orientation, (0.0, 0.0, 1.0))
+    )
     desired_tip = add(target, scale(tool_axis, -standoff_m))
     desired_origin = add(desired_tip, scale(tool_axis, -tip_offset_m))
     translation_vector = subtract(desired_origin, current_link_origin)

@@ -42,6 +42,11 @@ def load_calibration(name) -> HandeyeCalibration:
     filepath = filepath_for_calibration(name)
     with open(filepath) as f:
         m = yaml.full_load(f.read())
+    # Newer calibration writers may append non-ROS metadata.  Keep the wire
+    # message and all legacy fields unchanged while allowing those files to be
+    # loaded by older easy_handeye2 consumers in this workspace.
+    if isinstance(m, dict):
+        m = {key: value for key, value in m.items() if key in ('parameters', 'transform')}
     ret = HandeyeCalibration()
     set_message_fields(ret, m)
     return ret
